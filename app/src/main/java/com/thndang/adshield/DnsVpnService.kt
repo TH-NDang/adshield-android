@@ -41,30 +41,11 @@ class DnsVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
 
-        adBlocklist = DomainBlocklist.load(
-            this,
-            "blocklist.txt",
-            FilterUpdater.MAIN_REMOTE_FILE
-        )
-        popupRedirectBlocklist = DomainBlocklist.load(
-            this,
-            "popup_redirect_blocklist.txt",
-            FilterUpdater.POPUP_REMOTE_FILE
-        )
-
         val prefs = getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE)
         blockedCount = prefs.getLong(MainActivity.KEY_BLOCKED, 0)
         redirectBlockedCount =
             prefs.getLong(MainActivity.KEY_REDIRECT_BLOCKED, 0)
         totalCount = prefs.getLong(MainActivity.KEY_TOTAL, 0)
-
-        prefs.edit()
-            .putInt(MainActivity.KEY_BASE_FILTER_COUNT, adBlocklist.size)
-            .putInt(
-                MainActivity.KEY_REDIRECT_FILTER_COUNT,
-                popupRedirectBlocklist.size
-            )
-            .apply()
 
         createNotificationChannels()
     }
@@ -88,6 +69,37 @@ class DnsVpnService : VpnService() {
         return Service.START_NOT_STICKY
     }
 
+    private fun loadFilters() {
+        val newAd = DomainBlocklist.load(
+            this,
+            "blocklist.txt",
+            FilterUpdater.MAIN_REMOTE_FILE
+        )
+        val newPopup = DomainBlocklist.load(
+            this,
+            "popup_redirect_blocklist.txt",
+            FilterUpdater.POPUP_REMOTE_FILE
+        )
+
+        adBlocklist = newAd
+        popupRedirectBlocklist = newPopup
+
+        getSharedPreferences(
+            MainActivity.PREFS,
+            MODE_PRIVATE
+        )
+            .edit()
+            .putInt(
+                MainActivity.KEY_BASE_FILTER_COUNT,
+                newAd.size
+            )
+            .putInt(
+                MainActivity.KEY_REDIRECT_FILTER_COUNT,
+                newPopup.size
+            )
+            .apply()
+    }
+
     private fun reloadFiltersAsync() {
         adBlocklist = DomainBlocklist.empty()
         popupRedirectBlocklist = DomainBlocklist.empty()
@@ -98,34 +110,7 @@ class DnsVpnService : VpnService() {
             isDaemon = true,
             name = "AdShield-filter-reload"
         ) {
-            val newAd = DomainBlocklist.load(
-                this,
-                "blocklist.txt",
-                FilterUpdater.MAIN_REMOTE_FILE
-            )
-            val newPopup = DomainBlocklist.load(
-                this,
-                "popup_redirect_blocklist.txt",
-                FilterUpdater.POPUP_REMOTE_FILE
-            )
-
-            adBlocklist = newAd
-            popupRedirectBlocklist = newPopup
-
-            getSharedPreferences(
-                MainActivity.PREFS,
-                MODE_PRIVATE
-            )
-                .edit()
-                .putInt(
-                    MainActivity.KEY_BASE_FILTER_COUNT,
-                    newAd.size
-                )
-                .putInt(
-                    MainActivity.KEY_REDIRECT_FILTER_COUNT,
-                    newPopup.size
-                )
-                .apply()
+            loadFilters()
         }
     }
 
@@ -144,6 +129,7 @@ class DnsVpnService : VpnService() {
         if (active.get()) return
 
         startInForeground()
+        loadFilters()
 
         val configureIntent = PendingIntent.getActivity(
             this,
