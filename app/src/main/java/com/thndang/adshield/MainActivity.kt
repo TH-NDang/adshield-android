@@ -111,10 +111,21 @@ class MainActivity : Activity() {
 
     private fun ensureDefaults() {
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        val editor = prefs.edit()
+        var changed = false
+
         if (!prefs.contains(KEY_REDIRECT_PROTECTION)) {
-            prefs.edit()
-                .putBoolean(KEY_REDIRECT_PROTECTION, true)
-                .apply()
+            editor.putBoolean(KEY_REDIRECT_PROTECTION, true)
+            changed = true
+        }
+
+        if (!prefs.contains(KEY_OVERLAY_PROTECTION)) {
+            editor.putBoolean(KEY_OVERLAY_PROTECTION, true)
+            changed = true
+        }
+
+        if (changed) {
+            editor.apply()
         }
     }
 
@@ -293,6 +304,46 @@ class MainActivity : Activity() {
             setTextColor(Color.rgb(102, 112, 133))
             setPadding(0, dp(7), 0, dp(8))
         })
+
+        val overlayRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(4), 0, dp(8))
+        }
+
+        overlayRow.addView(
+            TextView(this).apply {
+                text = "Xóa quảng cáo nổi / overlay"
+                textSize = 14f
+                setTextColor(Color.rgb(52, 64, 84))
+            },
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+
+        overlayRow.addView(Switch(this).apply {
+            isChecked = getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getBoolean(KEY_OVERLAY_PROTECTION, true)
+            setOnCheckedChangeListener { _, enabled ->
+                getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(KEY_OVERLAY_PROTECTION, enabled)
+                    .apply()
+
+                toast(
+                    if (enabled) {
+                        "Đã bật xóa quảng cáo nổi"
+                    } else {
+                        "Đã tắt xóa quảng cáo nổi"
+                    }
+                )
+            }
+        })
+
+        browserCard.addView(overlayRow)
 
         browserCard.addView(Button(this).apply {
             text = "Mở trình duyệt bảo vệ"
@@ -866,6 +917,8 @@ class MainActivity : Activity() {
 
         const val KEY_REDIRECT_PROTECTION =
             "redirect_protection_enabled"
+        const val KEY_OVERLAY_PROTECTION =
+            "overlay_protection_enabled"
         const val KEY_REDIRECT_BLOCKED =
             "redirect_blocked_count"
         const val KEY_BASE_FILTER_COUNT =
