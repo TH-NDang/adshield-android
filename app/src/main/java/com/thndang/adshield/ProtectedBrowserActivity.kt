@@ -4,6 +4,7 @@ import android.app.Activity
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.os.Message
 import android.view.Gravity
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -132,7 +133,7 @@ class ProtectedBrowserActivity : Activity() {
             settings.cacheMode = WebSettings.LOAD_DEFAULT
             settings.mixedContentMode =
                 WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            settings.setSupportMultipleWindows(false)
+            settings.setSupportMultipleWindows(true)
             settings.javaScriptCanOpenWindowsAutomatically = false
 
             addJavascriptInterface(
@@ -140,7 +141,23 @@ class ProtectedBrowserActivity : Activity() {
                 "AdShield"
             )
 
-            webChromeClient = WebChromeClient()
+            webChromeClient = object : WebChromeClient() {
+                override fun onCreateWindow(
+                    view: WebView?,
+                    isDialog: Boolean,
+                    isUserGesture: Boolean,
+                    resultMsg: Message?
+                ): Boolean {
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@ProtectedBrowserActivity,
+                            "Đã chặn cửa sổ quảng cáo mới",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    return false
+                }
+            }
 
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(
@@ -248,11 +265,18 @@ class ProtectedBrowserActivity : Activity() {
     }
 
     private fun injectContentFilters() {
-        val popupEnabled = getSharedPreferences(
+        val prefs = getSharedPreferences(
             MainActivity.PREFS,
             MODE_PRIVATE
-        ).getBoolean(
+        )
+
+        val popupEnabled = prefs.getBoolean(
             MainActivity.KEY_REDIRECT_PROTECTION,
+            true
+        )
+
+        val overlayEnabled = prefs.getBoolean(
+            MainActivity.KEY_OVERLAY_PROTECTION,
             true
         )
 
@@ -371,6 +395,209 @@ class ProtectedBrowserActivity : Activity() {
                     }
                   } catch (_) {}
                 }, true);
+              }
+
+
+              if (${overlayEnabled}) {
+                const adWords =
+                  /(\\b|[_-])(ad|ads|advert|advertisement|banner|promo|sponsor|popup|popunder|floating|float|sticky[-_]?ad|qc|quangcao)(\\b|[_-])/i;
+                const gamblingWords =
+                  /(casino|bet|betting|jackpot|debet|yo88|win79|sun88|kubet|jun88|new88|fb88|m88|w88)/i;
+
+                const textOf = (el) => {
+                  try {
+                    return (
+                      (el.id || '') + ' ' +
+                      (el.className || '') + ' ' +
+                      (el.getAttribute && (el.getAttribute('aria-label') || '')) + ' ' +
+                      (el.getAttribute && (el.getAttribute('title') || '')) + ' ' +
+                      (el.textContent || '').slice(0, 180)
+                    );
+                  } catch (_) {
+                    return '';
+                  }
+                };
+
+                const linkedUrls = (el) => {
+                  const urls = [];
+                  try {
+                    if (el.href) urls.push(String(el.href));
+                    if (el.src) urls.push(String(el.src));
+                    el.querySelectorAll &&
+                      el.querySelectorAll('a[href],iframe[src],img[src]').forEach(node => {
+                        if (node.href) urls.push(String(node.href));
+                        if (node.src) urls.push(String(node.src));
+                      });
+                  } catch (_) {}
+                  return urls.slice(0, 12);
+                };
+
+                const hasBlockedUrl = (el) => {
+                  try {
+                    return linkedUrls(el).some(url =>
+                      window.AdShield && window.AdShield.isBlockedUrl(url)
+                    );
+                  } catch (_) {
+                    return false;
+                  }
+                };
+
+                const likelyAdDimensions = (r) => {
+                  const w = Math.round(r.width);
+                  const h = Math.round(r.height);
+                  const presets = [
+                    [320, 50], [320, 100], [300, 250], [336, 280],
+                    [728, 90], [970, 90], [970, 250], [160, 600],
+                    [300, 600], [468, 60]
+                  ];
+                  return presets.some(([pw, ph]) =>
+                    Math.abs(w - pw) <= 45 && Math.abs(h - ph) <= 45
+                  );
+                };
+
+                const isLikelyFloatingAd = (el) => {
+                  try {
+                    if (!el || el === document.body || el === document.documentElement) {
+                      return false;
+                    }
+
+                    const style = getComputedStyle(el);
+                    const pos = style.position;
+                    if (pos !== 'fixed' && pos !== 'sticky') return false;
+                    if (style.display === 'none' || style.visibility === 'hidden') return false;
+
+                    const r = el.getBoundingClientRect();
+                    if (r.width < 90 || r.height < 32) return false;
+
+                    const viewportArea = Math.max(1, innerWidth * innerHeight);
+                    const areaRatio = (r.width * r.height) / viewportArea;
+                    const z = parseInt(style.zIndex || '0', 10) || 0;
+                    const info = textOf(el);
+                    const keywordHit = adWords.test(info) || gamblingWords.test(info);
+                    const blockedLink = hasBlockedUrl(el);
+                    const media = !!(
+                      el.matches &&
+                      el.matches('a,iframe,img,ins,aside') ||
+                      (el.querySelector && el.querySelector('a[href],iframe,img,video'))
+                    );
+
+                    const nearEdge =
+                      r.top <= 90 ||
+                      r.bottom >= innerHeight - 90 ||
+                      r.left <= 40 ||
+                      r.right >= innerWidth - 40;
+
+                    const hugeOverlay =
+                      areaRatio >= 0.16 &&
+                      areaRatio <= 0.80 &&
+                      z >= 1000 &&
+                      media;
+
+                    const adSizedOverlay =
+                      likelyAdDimensions(r) &&
+                      z >= 50 &&
+                      media;
+
+                    const suspiciousFloating =
+                      z >= 500 &&
+                      nearEdge &&
+                      media &&
+                      (keywordHit || blockedLink);
+
+                    // Preserve likely navigation, forms and video controls unless
+                    // they explicitly point to a blocked/ad-like destination.
+                    const hasForm =
+                      !!(el.querySelector && el.querySelector('input,textarea,select,form'));
+                    const semanticUi =
+                      el.matches &&
+                      el.matches('header,nav,[role="navigation"],[role="toolbar"]');
+
+                    if ((hasForm || semanticUi) && !blockedLink && !keywordHit) {
+                      return false;
+                    }
+
+                    return (
+                      blockedLink ||
+                      keywordHit ||
+                      hugeOverlay ||
+                      adSizedOverlay ||
+                      suspiciousFloating
+                    );
+                  } catch (_) {
+                    return false;
+                  }
+                };
+
+                const cleanFloatingAds = () => {
+                  try {
+                    const candidates = document.querySelectorAll(
+                      'div,section,aside,a,iframe,img,ins'
+                    );
+
+                    let scanned = 0;
+                    for (let i = candidates.length - 1; i >= 0 && scanned < 4500; i--, scanned++) {
+                      const el = candidates[i];
+                      if (isLikelyFloatingAd(el)) {
+                        hide(el);
+                        el.setAttribute('data-adshield-overlay', 'blocked');
+                      }
+                    }
+
+                    // AnimeVietSub and similar sites frequently use fixed wrappers
+                    // with generic names but betting/casino images or external links.
+                    if (location.hostname.toLowerCase().includes('animevietsub')) {
+                      document.querySelectorAll(
+                        'body > div, body > a, .modal, .popup, [style*="position: fixed"], [style*="position:fixed"]'
+                      ).forEach(el => {
+                        try {
+                          const r = el.getBoundingClientRect();
+                          const st = getComputedStyle(el);
+                          const info = textOf(el);
+                          const suspicious =
+                            hasBlockedUrl(el) ||
+                            gamblingWords.test(info) ||
+                            (
+                              st.position === 'fixed' &&
+                              (parseInt(st.zIndex || '0', 10) || 0) >= 100 &&
+                              r.width >= 120 &&
+                              r.height >= 40 &&
+                              !!el.querySelector('img,a[href],iframe')
+                            );
+
+                          if (suspicious) hide(el);
+                        } catch (_) {}
+                      });
+                    }
+                  } catch (_) {}
+                };
+
+                window.__adShieldCleanFloating = cleanFloatingAds;
+                cleanFloatingAds();
+
+                let overlayTimer = null;
+                const scheduleOverlayClean = () => {
+                  if (overlayTimer) return;
+                  overlayTimer = setTimeout(() => {
+                    overlayTimer = null;
+                    cleanFloatingAds();
+                  }, 120);
+                };
+
+                try {
+                  new MutationObserver(scheduleOverlayClean)
+                    .observe(document.documentElement, {
+                      childList: true,
+                      subtree: true,
+                      attributes: true,
+                      attributeFilter: ['style', 'class', 'src', 'href']
+                    });
+                } catch (_) {}
+
+                setInterval(cleanFloatingAds, 1200);
+
+                document.addEventListener('touchstart', cleanFloatingAds, true);
+                document.addEventListener('click', cleanFloatingAds, true);
+                window.addEventListener('scroll', scheduleOverlayClean, { passive: true });
               }
 
               try {
