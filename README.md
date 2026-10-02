@@ -57,3 +57,19 @@ The app has no analytics SDK and no account system. Non-blocked DNS requests are
 ## License
 
 Apache-2.0.
+
+
+## Aggressive filter mode (v0.3)
+
+AdShield can download and combine a large DNS filtering profile designed for strong blocking on Android:
+
+- HaGeZi Multi ULTIMATE (aggressive)
+- HaGeZi TIF Mini for malware/phishing/security coverage
+- HaGeZi encrypted DNS (DoH) bypass domains
+- hostsVN for Vietnamese ad/tracker coverage
+- ABPVN ad domains
+- HaGeZi Pop-Up Ads as a separate detection list for popup/redirect warnings
+
+The downloaded lists are cached locally and refreshed after 24 hours when the app is opened. A failed update does not replace the previously working files. Users can always add an allow rule for false positives.
+
+This remains DNS-level filtering. It cannot remove same-origin HTML/CSS ad containers or reliably block JavaScript popups served from the same domain as the website.
