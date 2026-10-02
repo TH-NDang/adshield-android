@@ -26,8 +26,12 @@ class DnsVpnService : VpnService() {
     private var tunnel: ParcelFileDescriptor? = null
     private var worker: Thread? = null
 
-    private lateinit var adBlocklist: DomainBlocklist
-    private lateinit var popupRedirectBlocklist: DomainBlocklist
+    @Volatile
+    private var adBlocklist: DomainBlocklist = DomainBlocklist.empty()
+
+    @Volatile
+    private var popupRedirectBlocklist: DomainBlocklist =
+        DomainBlocklist.empty()
 
     private var blockedCount = 0L
     private var redirectBlockedCount = 0L
@@ -37,9 +41,16 @@ class DnsVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
 
-        adBlocklist = DomainBlocklist.load(this, "blocklist.txt")
-        popupRedirectBlocklist =
-            DomainBlocklist.load(this, "popup_redirect_blocklist.txt")
+        adBlocklist = DomainBlocklist.load(
+            this,
+            "blocklist.txt",
+            FilterUpdater.MAIN_REMOTE_FILE
+        )
+        popupRedirectBlocklist = DomainBlocklist.load(
+            this,
+            "popup_redirect_blocklist.txt",
+            FilterUpdater.POPUP_REMOTE_FILE
+        )
 
         val prefs = getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE)
         blockedCount = prefs.getLong(MainActivity.KEY_BLOCKED, 0)
@@ -70,9 +81,52 @@ class DnsVpnService : VpnService() {
                 stopSelf()
             }
 
+            ACTION_RELOAD_FILTERS -> reloadFiltersAsync()
+
             ACTION_START -> startVpn()
         }
         return Service.START_NOT_STICKY
+    }
+
+    private fun reloadFiltersAsync() {
+        adBlocklist = DomainBlocklist.empty()
+        popupRedirectBlocklist = DomainBlocklist.empty()
+        System.gc()
+
+        thread(
+            start = true,
+            isDaemon = true,
+            name = "AdShield-filter-reload"
+        ) {
+            val newAd = DomainBlocklist.load(
+                this,
+                "blocklist.txt",
+                FilterUpdater.MAIN_REMOTE_FILE
+            )
+            val newPopup = DomainBlocklist.load(
+                this,
+                "popup_redirect_blocklist.txt",
+                FilterUpdater.POPUP_REMOTE_FILE
+            )
+
+            adBlocklist = newAd
+            popupRedirectBlocklist = newPopup
+
+            getSharedPreferences(
+                MainActivity.PREFS,
+                MODE_PRIVATE
+            )
+                .edit()
+                .putInt(
+                    MainActivity.KEY_BASE_FILTER_COUNT,
+                    newAd.size
+                )
+                .putInt(
+                    MainActivity.KEY_REDIRECT_FILTER_COUNT,
+                    newPopup.size
+                )
+                .apply()
+        }
     }
 
     override fun onRevoke() {
@@ -430,6 +484,8 @@ class DnsVpnService : VpnService() {
     companion object {
         const val ACTION_START = "com.thndang.adshield.START"
         const val ACTION_STOP = "com.thndang.adshield.STOP"
+        const val ACTION_RELOAD_FILTERS =
+            "com.thndang.adshield.RELOAD_FILTERS"
 
         private const val VPN_ADDRESS = "10.111.222.1"
         private const val VIRTUAL_DNS = "10.111.222.2"
