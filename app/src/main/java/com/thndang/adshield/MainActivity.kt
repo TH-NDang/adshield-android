@@ -267,6 +267,46 @@ class MainActivity : Activity() {
         }
         filterCard.addView(filterUpdateButton)
 
+        val browserCard = card()
+        root.addView(
+            browserCard,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(14)
+            }
+        )
+
+        browserCard.addView(TextView(this).apply {
+            text = "Trình duyệt bảo vệ"
+            textSize = 17f
+            setTextColor(Color.rgb(16, 24, 40))
+        })
+
+        browserCard.addView(TextView(this).apply {
+            text =
+                "Dùng khi một trang vẫn còn banner, popup hoặc quảng cáo " +
+                    "được chèn trực tiếp vào HTML. Chế độ này lọc request " +
+                    "và ẩn phần tử quảng cáo ngay trong trang."
+            textSize = 13f
+            setTextColor(Color.rgb(102, 112, 133))
+            setPadding(0, dp(7), 0, dp(8))
+        })
+
+        browserCard.addView(Button(this).apply {
+            text = "Mở trình duyệt bảo vệ"
+            isAllCaps = false
+            setOnClickListener {
+                startActivity(
+                    Intent(
+                        this@MainActivity,
+                        ProtectedBrowserActivity::class.java
+                    )
+                )
+            }
+        })
+
         val redirectCard = card()
         root.addView(
             redirectCard,
