@@ -21,6 +21,10 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.concurrent.thread
 
 class MainActivity : Activity() {
 
@@ -31,6 +35,11 @@ class MainActivity : Activity() {
     private lateinit var redirectSwitch: Switch
     private lateinit var redirectStatsText: TextView
     private lateinit var rulesContainer: LinearLayout
+    private lateinit var filterStatusText: TextView
+    private lateinit var filterUpdateButton: Button
+
+    @Volatile
+    private var filterUpdating = false
 
     private var dialogShowing = false
     private var lastRulesSignature = ""
@@ -51,6 +60,7 @@ class MainActivity : Activity() {
         ensureDefaults()
         buildUi()
         captureIntentDomain(intent)
+        maybeAutoUpdateFilters()
 
         if (
             Build.VERSION.SDK_INT >= 33 &&
@@ -214,6 +224,49 @@ class MainActivity : Activity() {
             }
         )
 
+        val filterCard = card()
+        root.addView(
+            filterCard,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(14)
+            }
+        )
+
+        filterCard.addView(TextView(this).apply {
+            text = "Bộ lọc cực mạnh"
+            textSize = 17f
+            setTextColor(Color.rgb(16, 24, 40))
+        })
+
+        filterCard.addView(TextView(this).apply {
+            text =
+                "HaGeZi Ultimate + TIF Mini + chống DoH + hostsVN + ABPVN. " +
+                    "Mức này chặn mạnh và có thể làm một số website/app thiếu chức năng. " +
+                    "Nếu bị chặn nhầm, hãy dùng “Cho phép domain”."
+            textSize = 13f
+            setTextColor(Color.rgb(102, 112, 133))
+            setPadding(0, dp(7), 0, 0)
+        })
+
+        filterStatusText = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Color.rgb(52, 64, 84))
+            setPadding(0, dp(10), 0, dp(8))
+        }
+        filterCard.addView(filterStatusText)
+
+        filterUpdateButton = Button(this).apply {
+            text = "Cập nhật bộ lọc"
+            isAllCaps = false
+            setOnClickListener {
+                updateFilters(userInitiated = true)
+            }
+        }
+        filterCard.addView(filterUpdateButton)
+
         val redirectCard = card()
         root.addView(
             redirectCard,
@@ -335,6 +388,123 @@ class MainActivity : Activity() {
         setContentView(scroll)
         refreshUi()
         refreshRulesUi(force = true)
+    }
+
+    private fun maybeAutoUpdateFilters() {
+        if (FilterUpdater.isUpdateNeeded(this)) {
+            updateFilters(userInitiated = false)
+        }
+    }
+
+    private fun updateFilters(userInitiated: Boolean) {
+        if (filterUpdating) return
+        filterUpdating = true
+        refreshFilterStatus()
+
+        thread(
+            start = true,
+            isDaemon = true,
+            name = "AdShield-filter-update"
+        ) {
+            val outcome = runCatching {
+                FilterUpdater.update(applicationContext)
+            }
+
+            if (
+                outcome.isSuccess &&
+                isShieldRunning()
+            ) {
+                startService(
+                    Intent(
+                        this,
+                        DnsVpnService::class.java
+                    ).setAction(
+                        DnsVpnService.ACTION_RELOAD_FILTERS
+                    )
+                )
+            }
+
+            runOnUiThread {
+                filterUpdating = false
+                refreshUi()
+
+                outcome.onSuccess { result ->
+                    toast(
+                        "Đã cập nhật " +
+                            "%,d".format(result.downloadedRules) +
+                            " rule + " +
+                            "%,d".format(result.popupRules) +
+                            " rule popup"
+                    )
+                }.onFailure { error ->
+                    if (userInitiated) {
+                        toast(
+                            "Cập nhật thất bại: " +
+                                (error.message ?: "lỗi mạng")
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun refreshFilterStatus() {
+        if (
+            !::filterStatusText.isInitialized ||
+            !::filterUpdateButton.isInitialized
+        ) {
+            return
+        }
+
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        val activeCount =
+            prefs.getInt(KEY_BASE_FILTER_COUNT, 0)
+        val redirectCount =
+            prefs.getInt(KEY_REDIRECT_FILTER_COUNT, 0)
+        val downloaded =
+            prefs.getInt(KEY_FILTER_DOWNLOADED_RULES, 0)
+        val popupDownloaded =
+            prefs.getInt(KEY_POPUP_DOWNLOADED_RULES, 0)
+        val updatedAt =
+            prefs.getLong(KEY_FILTER_UPDATED_AT, 0L)
+        val error =
+            prefs.getString(KEY_FILTER_UPDATE_ERROR, null)
+
+        val displayCount =
+            if (activeCount > 0) activeCount else downloaded
+        val displayPopup =
+            if (redirectCount > 0) redirectCount else popupDownloaded
+
+        val updatedText = if (updatedAt > 0L) {
+            SimpleDateFormat(
+                "dd/MM/yyyy HH:mm",
+                Locale.getDefault()
+            ).format(Date(updatedAt))
+        } else {
+            "chưa cập nhật"
+        }
+
+        filterStatusText.text = buildString {
+            append("%,d domain/rule đang dùng".format(displayCount))
+            append("\n")
+            append("%,d rule popup/redirect".format(displayPopup))
+            append("\nCập nhật: ")
+            append(updatedText)
+
+            if (!error.isNullOrBlank()) {
+                append("\nLần tải gần nhất lỗi: ")
+                append(error)
+                append("\nBộ lọc cũ vẫn được giữ nguyên.")
+            }
+        }
+
+        filterUpdateButton.isEnabled = !filterUpdating
+        filterUpdateButton.text =
+            if (filterUpdating) {
+                "Đang tải bộ lọc..."
+            } else {
+                "Cập nhật bộ lọc"
+            }
     }
 
     private fun card(): LinearLayout {
@@ -633,6 +803,7 @@ class MainActivity : Activity() {
             22f * resources.displayMetrics.density
         )
 
+        refreshFilterStatus()
         refreshRulesUi()
     }
 
@@ -661,6 +832,17 @@ class MainActivity : Activity() {
             "base_filter_count"
         const val KEY_REDIRECT_FILTER_COUNT =
             "redirect_filter_count"
+
+        const val KEY_FILTER_UPDATED_AT =
+            "filter_updated_at"
+        const val KEY_FILTER_DOWNLOADED_RULES =
+            "filter_downloaded_rules"
+        const val KEY_POPUP_DOWNLOADED_RULES =
+            "popup_downloaded_rules"
+        const val KEY_FILTER_SOURCE_STATUS =
+            "filter_source_status"
+        const val KEY_FILTER_UPDATE_ERROR =
+            "filter_update_error"
 
         const val KEY_PENDING_REDIRECT_DOMAIN =
             "pending_redirect_domain"
