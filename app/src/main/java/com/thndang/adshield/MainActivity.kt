@@ -64,13 +64,11 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent != null) {
-            setIntent(intent)
-            captureIntentDomain(intent)
-            handler.post { showPendingRedirectAlert() }
-        }
+        setIntent(intent)
+        captureIntentDomain(intent)
+        handler.post { showPendingRedirectAlert() }
     }
 
     override fun onResume() {
