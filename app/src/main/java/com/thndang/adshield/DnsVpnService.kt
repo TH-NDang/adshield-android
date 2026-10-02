@@ -284,7 +284,7 @@ class DnsVpnService : VpnService() {
             )
             .setContentIntent(openApp)
             .setAutoCancel(true)
-            .setCategory(Notification.CATEGORY_WARNING)
+            .setCategory(Notification.CATEGORY_STATUS)
             .build()
 
         getSystemService(NotificationManager::class.java)
