@@ -23,6 +23,9 @@ class DomainBlocklist private constructor(
     }
 
     companion object {
+        fun empty(): DomainBlocklist =
+            DomainBlocklist(emptySet())
+
         fun load(
             context: Context,
             assetName: String,
