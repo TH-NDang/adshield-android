@@ -717,7 +717,7 @@ class ProtectedBrowserActivity : Activity() {
                     );
 
                     let scanned = 0;
-                    for (let i = candidates.length - 1; i >= 0 && scanned < 4500; i--, scanned++) {
+                    for (let i = candidates.length - 1; i >= 0 && scanned < 2200; i--, scanned++) {
                       const el = candidates[i];
                       if (isLikelyFloatingAd(el)) {
                         hide(el);
@@ -923,7 +923,7 @@ class ProtectedBrowserActivity : Activity() {
                     cleanFloatingAds();
                     cleanPauseAds();
                     bindVideoPauseCleaner();
-                  }, 90);
+                  }, 180);
                 };
 
                 try {
@@ -949,7 +949,7 @@ class ProtectedBrowserActivity : Activity() {
                       cleanPauseAds();
                     }
                   } catch (_) {}
-                }, 450);
+                }, 2200);
 
                 document.addEventListener('touchstart', cleanFloatingAds, true);
                 document.addEventListener('click', cleanFloatingAds, true);
