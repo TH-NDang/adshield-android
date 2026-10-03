@@ -127,6 +127,14 @@ class MainActivity : Activity() {
             changed = true
         }
 
+        if (!prefs.contains(KEY_LOCAL_NETWORK_COMPATIBILITY)) {
+            editor.putBoolean(
+                KEY_LOCAL_NETWORK_COMPATIBILITY,
+                true
+            )
+            changed = true
+        }
+
         if (changed) {
             editor.apply()
         }
@@ -444,6 +452,174 @@ class MainActivity : Activity() {
                 }
             })
         }
+
+        val localNetworkCard = card()
+        root.addView(
+            localNetworkCard,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(14)
+            }
+        )
+
+        localNetworkCard.addView(
+            TextView(this).apply {
+                text = "Thiết bị trong mạng nội bộ"
+                textSize = 17f
+                setTextColor(
+                    Color.rgb(
+                        16,
+                        24,
+                        40
+                    )
+                )
+            }
+        )
+
+        localNetworkCard.addView(
+            TextView(this).apply {
+                text =
+                    "Dành cho Remote TV, Chromecast, máy in và smart-home. " +
+                    "Tên miền .local/.lan/home.arpa sẽ ưu tiên DNS của Wi‑Fi. " +
+                    "Bạn cũng có thể cho một app bỏ qua AdShield hoàn toàn."
+
+                textSize = 13f
+                setTextColor(
+                    Color.rgb(
+                        102,
+                        112,
+                        133
+                    )
+                )
+                setPadding(
+                    0,
+                    dp(7),
+                    0,
+                    dp(8)
+                )
+            }
+        )
+
+        val lanRow =
+            LinearLayout(this).apply {
+                orientation =
+                    LinearLayout.HORIZONTAL
+                gravity =
+                    Gravity.CENTER_VERTICAL
+            }
+
+        lanRow.addView(
+            TextView(this).apply {
+                text =
+                    "Tương thích mạng nội bộ"
+
+                textSize = 14f
+                setTextColor(
+                    Color.rgb(
+                        52,
+                        64,
+                        84
+                    )
+                )
+            },
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+
+        lanRow.addView(
+            Switch(this).apply {
+                isChecked =
+                    getSharedPreferences(
+                        PREFS,
+                        MODE_PRIVATE
+                    ).getBoolean(
+                        KEY_LOCAL_NETWORK_COMPATIBILITY,
+                        true
+                    )
+
+                setOnCheckedChangeListener {
+                    _,
+                    enabled ->
+
+                    getSharedPreferences(
+                        PREFS,
+                        MODE_PRIVATE
+                    )
+                        .edit()
+                        .putBoolean(
+                            KEY_LOCAL_NETWORK_COMPATIBILITY,
+                            enabled
+                        )
+                        .apply()
+
+                    toast(
+                        if (enabled) {
+                            "Đã bật tương thích mạng nội bộ"
+                        } else {
+                            "Đã tắt tương thích mạng nội bộ"
+                        }
+                    )
+                }
+            }
+        )
+
+        localNetworkCard.addView(
+            lanRow
+        )
+
+        localNetworkCard.addView(
+            Button(this).apply {
+                text =
+                    "Chọn app bỏ qua VPN"
+
+                isAllCaps = false
+
+                setOnClickListener {
+                    startActivity(
+                        Intent(
+                            this@MainActivity,
+                            BypassAppsActivity::class.java
+                        )
+                    )
+                }
+            }
+        )
+
+        val bypassCount =
+            VpnAppRules
+                .bypassPackages(this)
+                .size
+
+        localNetworkCard.addView(
+            TextView(this).apply {
+                text =
+                    if (bypassCount == 0) {
+                        "Chưa có ứng dụng nào bỏ qua AdShield."
+                    } else {
+                        "$bypassCount ứng dụng đang bỏ qua AdShield."
+                    }
+
+                textSize = 12f
+                setTextColor(
+                    Color.rgb(
+                        102,
+                        112,
+                        133
+                    )
+                )
+                setPadding(
+                    0,
+                    dp(6),
+                    0,
+                    0
+                )
+            }
+        )
 
         val redirectCard = card()
         root.addView(
@@ -1107,6 +1283,9 @@ class MainActivity : Activity() {
             "redirect_protection_enabled"
         const val KEY_OVERLAY_PROTECTION =
             "overlay_protection_enabled"
+
+        const val KEY_LOCAL_NETWORK_COMPATIBILITY =
+            "local_network_compatibility"
         const val KEY_REDIRECT_BLOCKED =
             "redirect_blocked_count"
         const val KEY_BASE_FILTER_COUNT =
