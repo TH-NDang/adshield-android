@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -29,6 +31,10 @@ class DnsVpnService : VpnService() {
 
     private var tunnel: ParcelFileDescriptor? = null
     private var worker: Thread? = null
+
+    @Volatile
+    private var localDnsServers: List<InetAddress> =
+        emptyList()
 
     @Volatile
     private var adBlocklist: DomainBlocklist =
@@ -99,6 +105,10 @@ class DnsVpnService : VpnService() {
                     }
                 }
 
+                ACTION_RESTART -> {
+                    restartVpn()
+                }
+
                 ACTION_START -> {
                     safeStartVpn()
                 }
@@ -121,6 +131,8 @@ class DnsVpnService : VpnService() {
             // The large downloaded lists are loaded only after the VPN
             // is already established, on a background thread.
             loadBundledFilters()
+
+            captureLocalDnsServers()
 
             val descriptor =
                 establishTunnel()
@@ -161,28 +173,170 @@ class DnsVpnService : VpnService() {
                     PendingIntent.FLAG_UPDATE_CURRENT
             )
 
-        return Builder()
-            .setSession("AdShield")
-            .setConfigureIntent(
-                configureIntent
+        val builder =
+            Builder()
+                .setSession("AdShield")
+                .setConfigureIntent(
+                    configureIntent
+                )
+                .setMtu(1500)
+                .addAddress(
+                    VPN_ADDRESS,
+                    32
+                )
+                .addDnsServer(
+                    VIRTUAL_DNS
+                )
+                .addRoute(
+                    VIRTUAL_DNS,
+                    32
+                )
+                .allowFamily(
+                    OsConstants.AF_INET6
+                )
+                .setBlocking(true)
+
+        VpnAppRules
+            .bypassPackages(this)
+            .forEach { appPackage ->
+                if (
+                    appPackage != packageName
+                ) {
+                    try {
+                        builder
+                            .addDisallowedApplication(
+                                appPackage
+                            )
+                    } catch (_: Throwable) {
+                        // App may have been uninstalled since
+                        // the rule was saved. Ignore stale entries.
+                    }
+                }
+            }
+
+        return builder.establish()
+    }
+
+    private fun restartVpn() {
+        stopVpn()
+
+        try {
+            worker?.join(600)
+        } catch (_: Throwable) {
+        }
+
+        worker = null
+        safeStartVpn()
+    }
+
+    private fun captureLocalDnsServers() {
+        val manager =
+            getSystemService(
+                ConnectivityManager::class.java
             )
-            .setMtu(1500)
-            .addAddress(
-                VPN_ADDRESS,
-                32
+
+        val activeNetwork =
+            manager.activeNetwork
+
+        val networks =
+            buildList {
+                if (activeNetwork != null) {
+                    add(activeNetwork)
+                }
+
+                manager.allNetworks
+                    .forEach { network ->
+                        if (
+                            network !=
+                                activeNetwork
+                        ) {
+                            add(network)
+                        }
+                    }
+            }
+
+        var fallback:
+            List<InetAddress> =
+            emptyList()
+
+        for (network in networks) {
+            val capabilities =
+                manager.getNetworkCapabilities(
+                    network
+                )
+                    ?: continue
+
+            if (
+                capabilities.hasTransport(
+                    NetworkCapabilities
+                        .TRANSPORT_VPN
+                )
+            ) {
+                continue
+            }
+
+            val dns =
+                manager
+                    .getLinkProperties(
+                        network
+                    )
+                    ?.dnsServers
+                    ?.filter {
+                        !it.isAnyLocalAddress
+                    }
+                    .orEmpty()
+
+            if (dns.isEmpty()) {
+                continue
+            }
+
+            if (fallback.isEmpty()) {
+                fallback = dns
+            }
+
+            if (
+                capabilities.hasTransport(
+                    NetworkCapabilities
+                        .TRANSPORT_WIFI
+                ) ||
+                capabilities.hasTransport(
+                    NetworkCapabilities
+                        .TRANSPORT_ETHERNET
+                )
+            ) {
+                localDnsServers = dns
+                return
+            }
+        }
+
+        localDnsServers = fallback
+    }
+
+    private fun isLocalDomain(
+        domain: String
+    ): Boolean {
+        val normalized =
+            domain.trimEnd('.')
+                .lowercase()
+
+        return (
+            normalized == "local" ||
+                normalized.endsWith(
+                    ".local"
+                ) ||
+                normalized == "lan" ||
+                normalized.endsWith(
+                    ".lan"
+                ) ||
+                normalized ==
+                    "home.arpa" ||
+                normalized.endsWith(
+                    ".home.arpa"
+                ) ||
+                normalized.endsWith(
+                    ".localdomain"
+                )
             )
-            .addDnsServer(
-                VIRTUAL_DNS
-            )
-            .addRoute(
-                VIRTUAL_DNS,
-                32
-            )
-            .allowFamily(
-                OsConstants.AF_INET6
-            )
-            .setBlocking(true)
-            .establish()
     }
 
     private fun loadBundledFilters() {
@@ -443,15 +597,32 @@ class DnsVpnService : VpnService() {
                             domain
                         )
 
+                val localNetworkCompatibility =
+                    prefs.getBoolean(
+                        MainActivity
+                            .KEY_LOCAL_NETWORK_COMPATIBILITY,
+                        true
+                    )
+
+                val localDomain =
+                    localNetworkCompatibility &&
+                        isLocalDomain(
+                            domain
+                        )
+
                 val popupRedirectBlocked =
-                    !allowed &&
+                    !localDomain &&
+                        !allowed &&
                         redirectProtectionEnabled &&
                         popupRedirectMatched
 
                 val blocked =
-                    customBlocked ||
-                        baseBlocked ||
-                        popupRedirectBlocked
+                    !localDomain &&
+                        (
+                            customBlocked ||
+                                baseBlocked ||
+                                popupRedirectBlocked
+                            )
 
                 val response =
                     if (blocked) {
@@ -469,6 +640,15 @@ class DnsVpnService : VpnService() {
 
                         DnsCodec
                             .buildBlockedNxdomain(
+                                request.dnsPayload
+                            )
+                    } else if (
+                        localDomain
+                    ) {
+                        forwardToLocalDns(
+                            request.dnsPayload
+                        )
+                            ?: forwardToUpstream(
                                 request.dnsPayload
                             )
                     } else {
@@ -730,25 +910,43 @@ class DnsVpnService : VpnService() {
             )
     }
 
-    private fun forwardToUpstream(
+    private fun forwardToLocalDns(
         query: ByteArray
     ): ByteArray? {
-        val upstream =
-            InetAddress.getByName(
-                UPSTREAM_DNS
-            )
+        for (
+            server in
+            localDnsServers
+        ) {
+            val response =
+                forwardToDns(
+                    query,
+                    server
+                )
 
+            if (response != null) {
+                return response
+            }
+        }
+
+        return null
+    }
+
+    private fun forwardToDns(
+        query: ByteArray,
+        upstream: InetAddress
+    ): ByteArray? {
         val receiveBuffer =
             ByteArray(4096)
 
         return try {
             DatagramSocket().use {
                 socket ->
+
                 if (!protect(socket)) {
                     return null
                 }
 
-                socket.soTimeout = 2500
+                socket.soTimeout = 1400
 
                 socket.send(
                     DatagramPacket(
@@ -781,6 +979,20 @@ class DnsVpnService : VpnService() {
         } catch (_: Throwable) {
             null
         }
+    }
+
+    private fun forwardToUpstream(
+        query: ByteArray
+    ): ByteArray? {
+        val upstream =
+            InetAddress.getByName(
+                UPSTREAM_DNS
+            )
+
+        return forwardToDns(
+            query,
+            upstream
+        )
     }
 
     private fun persistStats() {
@@ -921,6 +1133,9 @@ class DnsVpnService : VpnService() {
 
         const val ACTION_RELOAD_FILTERS =
             "com.thndang.adshield.RELOAD_FILTERS"
+
+        const val ACTION_RESTART =
+            "com.thndang.adshield.RESTART"
 
         const val SERVICE_ERROR_FILE =
             "vpn_service_error.log"
