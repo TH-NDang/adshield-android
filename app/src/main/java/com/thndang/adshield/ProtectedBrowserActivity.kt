@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Message
 import android.util.Log
-import java.io.File
 import android.view.Gravity
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -15,14 +14,15 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.webkit.WebViewCompat
-import androidx.webkit.WebViewFeature
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import java.io.ByteArrayInputStream
+import java.io.File
 
 class ProtectedBrowserActivity : Activity() {
 
@@ -40,7 +40,7 @@ class ProtectedBrowserActivity : Activity() {
         installCrashReporter()
 
         try {
-            loadFilters()
+            loadLightweightFilters()
             buildUi()
         } catch (error: Throwable) {
             recordBrowserCrash(error)
@@ -50,6 +50,7 @@ class ProtectedBrowserActivity : Activity() {
 
         val initial = intent.getStringExtra(EXTRA_URL)
             ?: "https://animevietsub.nl"
+
         addressBar.setText(initial)
         openAddress()
     }
@@ -73,9 +74,16 @@ class ProtectedBrowserActivity : Activity() {
             val logText = buildString {
                 appendLine("AdShield protected browser crash")
                 appendLine("Time: " + System.currentTimeMillis())
-                appendLine("Device: " + android.os.Build.MANUFACTURER +
-                    " " + android.os.Build.MODEL)
-                appendLine("Android: " + android.os.Build.VERSION.RELEASE)
+                appendLine(
+                    "Device: " +
+                        android.os.Build.MANUFACTURER +
+                        " " +
+                        android.os.Build.MODEL
+                )
+                appendLine(
+                    "Android: " +
+                        android.os.Build.VERSION.RELEASE
+                )
                 appendLine()
                 appendLine(Log.getStackTraceString(error))
             }
@@ -95,7 +103,12 @@ class ProtectedBrowserActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(24), dp(24), dp(24), dp(24))
+            setPadding(
+                dp(24),
+                dp(24),
+                dp(24),
+                dp(24)
+            )
             setBackgroundColor(Color.WHITE)
         }
 
@@ -108,8 +121,8 @@ class ProtectedBrowserActivity : Activity() {
 
         root.addView(TextView(this).apply {
             text =
-                "AdShield đã lưu log lỗi thay vì để toàn bộ ứng dụng crash.\n\n" +
-                    (error.javaClass.simpleName) +
+                "AdShield đã lưu log lỗi.\n\n" +
+                    error.javaClass.simpleName +
                     ": " +
                     (error.message ?: "không có thông báo")
             textSize = 14f
@@ -127,14 +140,12 @@ class ProtectedBrowserActivity : Activity() {
         setContentView(root)
     }
 
-    private fun loadFilters() {
-        // The VPN service already owns the very large downloaded lists.
-        // Keep the protected browser lightweight so opening WebView does not
-        // duplicate hundreds of thousands of rules in the same app session.
+    private fun loadLightweightFilters() {
         adBlocklist = DomainBlocklist.load(
             this,
             "blocklist.txt"
         )
+
         popupBlocklist = DomainBlocklist.load(
             this,
             "popup_redirect_blocklist.txt"
@@ -143,17 +154,24 @@ class ProtectedBrowserActivity : Activity() {
 
     private fun buildUi() {
         val density = resources.displayMetrics.density
-        fun dp(v: Int) = (v * density).toInt()
+        fun dp(value: Int) = (value * density).toInt()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(247, 249, 252))
+            setBackgroundColor(
+                Color.rgb(247, 249, 252)
+            )
         }
 
         val toolbar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(
+                dp(8),
+                dp(8),
+                dp(8),
+                dp(8)
+            )
             setBackgroundColor(Color.WHITE)
         }
 
@@ -161,8 +179,16 @@ class ProtectedBrowserActivity : Activity() {
             text = "‹"
             textSize = 22f
             isAllCaps = false
+
             setOnClickListener {
-                if (webView.canGoBack()) webView.goBack() else finish()
+                if (
+                    ::webView.isInitialized &&
+                    webView.canGoBack()
+                ) {
+                    webView.goBack()
+                } else {
+                    finish()
+                }
             }
         })
 
@@ -170,11 +196,13 @@ class ProtectedBrowserActivity : Activity() {
             hint = "Nhập địa chỉ web"
             setSingleLine(true)
             textSize = 14f
+
             setOnEditorActionListener { _, _, _ ->
                 openAddress()
                 true
             }
         }
+
         toolbar.addView(
             addressBar,
             LinearLayout.LayoutParams(
@@ -190,7 +218,9 @@ class ProtectedBrowserActivity : Activity() {
         toolbar.addView(Button(this).apply {
             text = "Đi"
             isAllCaps = false
-            setOnClickListener { openAddress() }
+            setOnClickListener {
+                openAddress()
+            }
         })
 
         root.addView(
@@ -202,16 +232,26 @@ class ProtectedBrowserActivity : Activity() {
         )
 
         statusText = TextView(this).apply {
-            text = "🛡 Lọc request + quảng cáo trong trang"
+            text =
+                "🛡 Lọc theo sự kiện · không quét toàn trang"
             textSize = 12f
             setTextColor(Color.rgb(3, 152, 85))
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            setBackgroundColor(Color.rgb(236, 253, 243))
+            setPadding(
+                dp(12),
+                dp(6),
+                dp(12),
+                dp(6)
+            )
+            setBackgroundColor(
+                Color.rgb(236, 253, 243)
+            )
         }
+
         root.addView(statusText)
 
         webView = WebView(this).apply {
             setBackgroundColor(Color.WHITE)
+
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
@@ -219,90 +259,119 @@ class ProtectedBrowserActivity : Activity() {
             settings.cacheMode = WebSettings.LOAD_DEFAULT
             settings.mixedContentMode =
                 WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+
             settings.setSupportMultipleWindows(true)
-            settings.javaScriptCanOpenWindowsAutomatically = false
+            settings.javaScriptCanOpenWindowsAutomatically =
+                false
 
             addJavascriptInterface(
                 ShieldBridge(),
                 "AdShield"
             )
 
-            webChromeClient = object : WebChromeClient() {
-                override fun onCreateWindow(
-                    view: WebView?,
-                    isDialog: Boolean,
-                    isUserGesture: Boolean,
-                    resultMsg: Message?
-                ): Boolean {
-                    runOnUiThread {
-                        Toast.makeText(
-                            this@ProtectedBrowserActivity,
-                            "Đã chặn cửa sổ quảng cáo mới",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                    return false
-                }
-            }
+            webChromeClient =
+                object : WebChromeClient() {
+                    override fun onCreateWindow(
+                        view: WebView?,
+                        isDialog: Boolean,
+                        isUserGesture: Boolean,
+                        resultMsg: Message?
+                    ): Boolean {
+                        runOnUiThread {
+                            Toast.makeText(
+                                this@ProtectedBrowserActivity,
+                                "Đã chặn cửa sổ quảng cáo mới",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
 
-            webViewClient = object : WebViewClient() {
-                override fun shouldInterceptRequest(
-                    view: WebView?,
-                    request: WebResourceRequest?
-                ): WebResourceResponse? {
-                    val url = request?.url ?: return null
-                    if (shouldBlock(url)) {
-                        return blockedResponse()
+                        return false
                     }
-                    return null
                 }
 
-                override fun shouldOverrideUrlLoading(
-                    view: WebView?,
-                    request: WebResourceRequest?
-                ): Boolean {
-                    val url = request?.url ?: return false
-                    if (shouldBlock(url)) {
+            webViewClient =
+                object : WebViewClient() {
+                    override fun shouldInterceptRequest(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): WebResourceResponse? {
+                        val url =
+                            request?.url
+                                ?: return null
+
+                        return if (shouldBlock(url)) {
+                            blockedResponse()
+                        } else {
+                            null
+                        }
+                    }
+
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): Boolean {
+                        val url =
+                            request?.url
+                                ?: return false
+
+                        if (!shouldBlock(url)) {
+                            return false
+                        }
+
                         runOnUiThread {
                             Toast.makeText(
                                 this@ProtectedBrowserActivity,
                                 "Đã chặn chuyển hướng: " +
-                                    (url.host ?: url.toString()),
+                                    (
+                                        url.host
+                                            ?: url.toString()
+                                    ),
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
+
                         return true
                     }
-                    return false
-                }
 
-                override fun onPageStarted(
-                    view: WebView?,
-                    url: String?,
-                    favicon: android.graphics.Bitmap?
-                ) {
-                    super.onPageStarted(view, url, favicon)
-
-                    if (!WebViewFeature.isFeatureSupported(
-                            WebViewFeature.DOCUMENT_START_SCRIPT
-                        )
+                    override fun onPageStarted(
+                        view: WebView?,
+                        url: String?,
+                        favicon: android.graphics.Bitmap?
                     ) {
-                        view?.evaluateJavascript(
-                            buildDocumentStartScript(),
-                            null
+                        super.onPageStarted(
+                            view,
+                            url,
+                            favicon
+                        )
+
+                        if (
+                            !WebViewFeature
+                                .isFeatureSupported(
+                                    WebViewFeature
+                                        .DOCUMENT_START_SCRIPT
+                                )
+                        ) {
+                            view?.evaluateJavascript(
+                                buildDocumentStartScript(),
+                                null
+                            )
+                        }
+                    }
+
+                    override fun onPageFinished(
+                        view: WebView?,
+                        url: String?
+                    ) {
+                        super.onPageFinished(
+                            view,
+                            url
+                        )
+
+                        addressBar.setText(
+                            url ?: ""
                         )
                     }
                 }
-
-                override fun onPageFinished(
-                    view: WebView?,
-                    url: String?
-                ) {
-                    super.onPageFinished(view, url)
-                    addressBar.setText(url ?: "")
-                    injectContentFilters()
-                }
-            }
         }
 
         root.addView(
@@ -325,23 +394,22 @@ class ProtectedBrowserActivity : Activity() {
                     WebViewFeature.DOCUMENT_START_SCRIPT
                 )
             ) {
-                WebViewCompat.addDocumentStartJavaScript(
-                    webView,
-                    buildDocumentStartScript(),
-                    setOf("*")
-                )
+                WebViewCompat
+                    .addDocumentStartJavaScript(
+                        webView,
+                        buildDocumentStartScript(),
+                        setOf("*")
+                    )
 
                 statusText.text =
-                    "🛡 Lọc sớm + lọc quảng cáo trong player"
+                    "🛡 Lọc từ document-start · mọi iframe"
             } else {
                 statusText.text =
-                    "🛡 Lọc request + fallback DOM filter"
+                    "🛡 Chế độ tương thích WebView"
             }
         } catch (error: Throwable) {
-            // Some vendor WebView builds may expose a feature but still fail
-            // while registering the document-start script. Continue with the
-            // onPageStarted/onPageFinished fallback instead of crashing.
             recordBrowserCrash(error)
+
             statusText.text =
                 "🛡 Chế độ tương thích WebView"
         }
@@ -365,10 +433,13 @@ class ProtectedBrowserActivity : Activity() {
 
         return """
             (function() {
-              if (window.__adShieldDocumentStart) return;
-              window.__adShieldDocumentStart = true;
+              if (window.__adShieldV8) return;
+              window.__adShieldV8 = true;
 
-              const css = [
+              const POPUP_ENABLED = ${popupEnabled};
+              const OVERLAY_ENABLED = ${overlayEnabled};
+
+              const BASE_SELECTORS = [
                 '.ads-300',
                 '.ads_player',
                 '.pc-catfixx',
@@ -384,23 +455,82 @@ class ProtectedBrowserActivity : Activity() {
                 '[class*="float-ad"]',
                 '[class*="popup-ad"]',
                 '[id*="floating-ad"]',
-                '[id*="popup-ad"]'
-              ].join(',') +
-                '{display:none!important;visibility:hidden!important;' +
-                'opacity:0!important;pointer-events:none!important;' +
-                'height:0!important;min-height:0!important;' +
-                'max-height:0!important;margin:0!important;padding:0!important;}';
+                '[id*="popup-ad"]',
+                '[class*="pause-ad"]',
+                '[class*="pause_ad"]',
+                '[id*="pause-ad"]',
+                '[id*="pause_ad"]',
+                '[class*="video-ad"]',
+                '[id*="video-ad"]'
+              ];
 
-              const installStyle = function() {
+              const HIDE_STYLE =
+                'display:none!important;' +
+                'visibility:hidden!important;' +
+                'opacity:0!important;' +
+                'pointer-events:none!important;' +
+                'height:0!important;' +
+                'min-height:0!important;' +
+                'max-height:0!important;' +
+                'margin:0!important;' +
+                'padding:0!important;';
+
+              const normalizeText = (value) => {
                 try {
-                  if (document.getElementById('adshield-document-start-style')) {
+                  return String(value || '')
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\\u0300-\\u036f]/g, '')
+                    .replace(/đ/g, 'd')
+                    .replace(/\\s+/g, ' ')
+                    .trim();
+                } catch (_) {
+                  return String(value || '')
+                    .toLowerCase()
+                    .trim();
+                }
+              };
+
+              const hide = (el) => {
+                if (!el || !el.style) return;
+
+                try {
+                  el.style.cssText += ';' + HIDE_STYLE;
+                  el.setAttribute(
+                    'data-adshield-hidden',
+                    '1'
+                  );
+                } catch (_) {}
+              };
+
+              const installStyle = () => {
+                try {
+                  if (
+                    document.getElementById(
+                      'adshield-v8-style'
+                    )
+                  ) {
                     return true;
                   }
-                  const root = document.head || document.documentElement;
+
+                  const root =
+                    document.head ||
+                    document.documentElement;
+
                   if (!root) return false;
-                  const style = document.createElement('style');
-                  style.id = 'adshield-document-start-style';
-                  style.textContent = css;
+
+                  const style =
+                    document.createElement('style');
+
+                  style.id =
+                    'adshield-v8-style';
+
+                  style.textContent =
+                    BASE_SELECTORS.join(',') +
+                    '{' +
+                    HIDE_STYLE +
+                    '}';
+
                   root.appendChild(style);
                   return true;
                 } catch (_) {
@@ -410,84 +540,487 @@ class ProtectedBrowserActivity : Activity() {
 
               if (!installStyle()) {
                 try {
-                  const rootWatcher = new MutationObserver(function(_, obs) {
-                    if (installStyle()) obs.disconnect();
-                  });
-                  rootWatcher.observe(document, {
-                    childList: true,
-                    subtree: true
-                  });
+                  const rootObserver =
+                    new MutationObserver(
+                      (_, observer) => {
+                        if (installStyle()) {
+                          observer.disconnect();
+                        }
+                      }
+                    );
+
+                  rootObserver.observe(
+                    document,
+                    {
+                      childList: true,
+                      subtree: true
+                    }
+                  );
                 } catch (_) {}
               }
 
-              if (${popupEnabled}) {
+              if (POPUP_ENABLED) {
                 try {
-                  Object.defineProperty(window, 'open', {
-                    configurable: true,
-                    writable: false,
-                    value: function() { return null; }
-                  });
+                  Object.defineProperty(
+                    window,
+                    'open',
+                    {
+                      configurable: true,
+                      writable: false,
+                      value: function() {
+                        return null;
+                      }
+                    }
+                  );
                 } catch (_) {
                   try {
-                    window.open = function() { return null; };
+                    window.open =
+                      function() {
+                        return null;
+                      };
                   } catch (_) {}
                 }
               }
 
-              try {
-                if (
-                  location.hostname &&
-                  location.hostname.toLowerCase().includes('animevietsub')
-                ) {
-                  const popupStub = {
-                    open: function(){},
-                    show: function(){},
-                    init: function(){},
-                    create: function(){},
-                    trigger: function(){}
-                  };
+              const findPauseContainer =
+                (source) => {
+                  let node = source;
+                  let best = source;
+
+                  for (
+                    let depth = 0;
+                    depth < 9 && node;
+                    depth++
+                  ) {
+                    try {
+                      const text =
+                        normalizeText(
+                          node.innerText
+                        );
+
+                      const hasClose =
+                        text.includes(
+                          'dong quang cao'
+                        );
+
+                      const hasContinue =
+                        text.includes(
+                          'dong va xem tiep'
+                        );
+
+                      const hasAd =
+                        text === 'quang cao' ||
+                        text.includes(
+                          ' quang cao '
+                        ) ||
+                        hasClose ||
+                        hasContinue;
+
+                      if (hasAd) {
+                        best = node;
+                      }
+
+                      if (
+                        hasClose &&
+                        hasContinue
+                      ) {
+                        return node;
+                      }
+                    } catch (_) {}
+
+                    node = node.parentElement;
+                  }
+
+                  return best;
+                };
+
+              const removePauseAdFromRoot =
+                (root) => {
+                  if (!root) return;
+
+                  const elements = [];
 
                   try {
-                    Object.defineProperty(window, 'PopupManager', {
-                      configurable: true,
-                      get: function() { return popupStub; },
-                      set: function() {}
-                    });
+                    if (
+                      root.nodeType === 1
+                    ) {
+                      elements.push(root);
+                    }
+
+                    if (
+                      root.querySelectorAll
+                    ) {
+                      root.querySelectorAll(
+                        'button,a,[role="button"],' +
+                        'div,span'
+                      ).forEach(
+                        el => elements.push(el)
+                      );
+                    }
                   } catch (_) {}
+
+                  let checked = 0;
+
+                  for (const el of elements) {
+                    if (checked++ > 300) break;
+
+                    let text = '';
+
+                    try {
+                      text =
+                        normalizeText(
+                          el.innerText
+                        );
+                    } catch (_) {}
+
+                    if (
+                      text !== 'dong quang cao' &&
+                      text !== 'dong va xem tiep'
+                    ) {
+                      continue;
+                    }
+
+                    const container =
+                      findPauseContainer(el);
+
+                    if (
+                      text ===
+                        'dong quang cao'
+                    ) {
+                      try {
+                        el.click();
+                      } catch (_) {}
+                    }
+
+                    hide(container);
+                  }
+
+                  try {
+                    const rootText =
+                      normalizeText(
+                        root.innerText
+                      );
+
+                    if (
+                      rootText.includes(
+                        'dong quang cao'
+                      ) &&
+                      rootText.includes(
+                        'dong va xem tiep'
+                      )
+                    ) {
+                      hide(
+                        findPauseContainer(
+                          root
+                        )
+                      );
+                    }
+                  } catch (_) {}
+              };
+
+              const removeKnownAdsFromRoot =
+                (root) => {
+                  if (
+                    !root ||
+                    root.nodeType !== 1
+                  ) {
+                    return;
+                  }
+
+                  try {
+                    for (
+                      const selector
+                      of BASE_SELECTORS
+                    ) {
+                      if (
+                        root.matches &&
+                        root.matches(selector)
+                      ) {
+                        hide(root);
+                      }
+
+                      if (
+                        root.querySelectorAll
+                      ) {
+                        root
+                          .querySelectorAll(
+                            selector
+                          )
+                          .forEach(hide);
+                      }
+                    }
+                  } catch (_) {}
+              };
+
+              const looksLikeFloatingAd =
+                (el) => {
+                  if (
+                    !OVERLAY_ENABLED ||
+                    !el ||
+                    el.nodeType !== 1
+                  ) {
+                    return false;
+                  }
+
+                  try {
+                    const text =
+                      normalizeText(
+                        (
+                          el.id || ''
+                        ) +
+                        ' ' +
+                        (
+                          el.className || ''
+                        ) +
+                        ' ' +
+                        (
+                          el.innerText || ''
+                        ).slice(0, 180)
+                      );
+
+                    const adWord =
+                      /(^|[ _-])(ad|ads|advert|banner|promo|popup|popunder|qc|quangcao)([ _-]|$)/i
+                        .test(text);
+
+                    const gambling =
+                      /(bom88|casino|bet|betting|debet|yo88|win79|sun88|kubet|jun88|new88|fb88|m88|w88)/
+                        .test(text);
+
+                    if (
+                      !adWord &&
+                      !gambling
+                    ) {
+                      return false;
+                    }
+
+                    const style =
+                      getComputedStyle(el);
+
+                    if (
+                      style.position !==
+                        'fixed' &&
+                      style.position !==
+                        'sticky' &&
+                      style.position !==
+                        'absolute'
+                    ) {
+                      return false;
+                    }
+
+                    const rect =
+                      el.getBoundingClientRect();
+
+                    return (
+                      rect.width >= 100 &&
+                      rect.height >= 35
+                    );
+                  } catch (_) {
+                    return false;
+                  }
+                };
+
+              const processNode = (node) => {
+                if (!node) return;
+
+                removeKnownAdsFromRoot(
+                  node
+                );
+
+                removePauseAdFromRoot(
+                  node
+                );
+
+                if (
+                  looksLikeFloatingAd(
+                    node
+                  )
+                ) {
+                  hide(node);
+                }
+              };
+
+              const cleanDocumentOnce =
+                () => {
+                  try {
+                    BASE_SELECTORS
+                      .forEach(
+                        selector => {
+                          document
+                            .querySelectorAll(
+                              selector
+                            )
+                            .forEach(hide);
+                        }
+                      );
+                  } catch (_) {}
+
+                  removePauseAdFromRoot(
+                    document
+                  );
+              };
+
+              const schedulePauseClean =
+                () => {
+                  [
+                    0,
+                    40,
+                    120,
+                    300,
+                    650
+                  ].forEach(
+                    delay => {
+                      setTimeout(
+                        cleanDocumentOnce,
+                        delay
+                      );
+                    }
+                  );
+                };
+
+              document.addEventListener(
+                'pause',
+                function(event) {
+                  try {
+                    if (
+                      event.target &&
+                      event.target.tagName ===
+                        'VIDEO'
+                    ) {
+                      schedulePauseClean();
+                    }
+                  } catch (_) {}
+                },
+                true
+              );
+
+              document.addEventListener(
+                'play',
+                function(event) {
+                  try {
+                    if (
+                      event.target &&
+                      event.target.tagName ===
+                        'VIDEO'
+                    ) {
+                      cleanDocumentOnce();
+                    }
+                  } catch (_) {}
+                },
+                true
+              );
+
+              document.addEventListener(
+                'click',
+                function(event) {
+                  if (!POPUP_ENABLED) {
+                    return;
+                  }
+
+                  try {
+                    const anchor =
+                      event.target &&
+                      event.target.closest
+                        ? event.target.closest(
+                            'a[target="_blank"]'
+                          )
+                        : null;
+
+                    if (anchor) {
+                      anchor.removeAttribute(
+                        'target'
+                      );
+                    }
+                  } catch (_) {}
+                },
+                true
+              );
+
+              try {
+                const observer =
+                  new MutationObserver(
+                    mutations => {
+                      for (
+                        const mutation
+                        of mutations
+                      ) {
+                        for (
+                          const node
+                          of mutation.addedNodes
+                        ) {
+                          processNode(node);
+                        }
+                      }
+                    }
+                  );
+
+                const startObserver =
+                  () => {
+                    const root =
+                      document.documentElement;
+
+                    if (!root) return false;
+
+                    observer.observe(
+                      root,
+                      {
+                        childList: true,
+                        subtree: true
+                      }
+                    );
+
+                    return true;
+                  };
+
+                if (!startObserver()) {
+                  const bootstrap =
+                    new MutationObserver(
+                      (_, bootstrapObserver) => {
+                        if (
+                          startObserver()
+                        ) {
+                          bootstrapObserver
+                            .disconnect();
+                        }
+                      }
+                    );
+
+                  bootstrap.observe(
+                    document,
+                    {
+                      childList: true,
+                      subtree: true
+                    }
+                  );
                 }
               } catch (_) {}
 
-              const hideNow = function() {
-                try {
-                  document.querySelectorAll(
-                    '.ads-300,.ads_player,.pc-catfixx,.mobile-catfixx,' +
-                    '.mobile-catfish-top,.Ads,.Adv,#invideo_wrapper,' +
-                    '#_preload-ads-1'
-                  ).forEach(function(el) {
-                    el.style.setProperty('display', 'none', 'important');
-                    el.style.setProperty('visibility', 'hidden', 'important');
-                    el.style.setProperty('pointer-events', 'none', 'important');
-                  });
-                } catch (_) {}
-              };
-
-              try {
-                new MutationObserver(hideNow).observe(document, {
-                  childList: true,
-                  subtree: true
-                });
-              } catch (_) {}
-
-              if (${overlayEnabled}) {
-                window.__adShieldEarlyOverlayEnabled = true;
+              if (
+                document.readyState ===
+                  'loading'
+              ) {
+                document.addEventListener(
+                  'DOMContentLoaded',
+                  cleanDocumentOnce,
+                  {
+                    once: true
+                  }
+                );
+              } else {
+                cleanDocumentOnce();
               }
             })();
         """.trimIndent()
     }
 
     private fun openAddress() {
-        var url = addressBar.text.toString().trim()
-        if (url.isEmpty()) return
+        var url =
+            addressBar.text
+                .toString()
+                .trim()
+
+        if (url.isEmpty()) {
+            return
+        }
 
         if (
             !url.startsWith("http://") &&
@@ -499,607 +1032,107 @@ class ProtectedBrowserActivity : Activity() {
         webView.loadUrl(url)
     }
 
-    private fun shouldBlock(uri: Uri): Boolean {
-        val host = uri.host?.lowercase() ?: return false
+    private fun shouldBlock(
+        uri: Uri
+    ): Boolean {
+        val host =
+            uri.host
+                ?.lowercase()
+                ?: return false
 
-        if (DomainRules.isAllowed(this, host)) {
+        if (
+            DomainRules.isAllowed(
+                this,
+                host
+            )
+        ) {
             return false
         }
 
-        if (DomainRules.isBlocked(this, host)) {
+        if (
+            DomainRules.isBlocked(
+                this,
+                host
+            )
+        ) {
             return true
         }
 
-        if (adBlocklist.isBlocked(host)) {
+        if (
+            adBlocklist.isBlocked(
+                host
+            )
+        ) {
             return true
         }
 
-        val popupEnabled = getSharedPreferences(
-            MainActivity.PREFS,
-            MODE_PRIVATE
-        ).getBoolean(
-            MainActivity.KEY_REDIRECT_PROTECTION,
-            true
-        )
+        val popupEnabled =
+            getSharedPreferences(
+                MainActivity.PREFS,
+                MODE_PRIVATE
+            ).getBoolean(
+                MainActivity
+                    .KEY_REDIRECT_PROTECTION,
+                true
+            )
 
-        return popupEnabled && popupBlocklist.isBlocked(host)
+        return (
+            popupEnabled &&
+                popupBlocklist
+                    .isBlocked(host)
+            )
     }
 
-    private fun blockedResponse(): WebResourceResponse {
+    private fun blockedResponse():
+        WebResourceResponse {
         return WebResourceResponse(
             "text/plain",
             "utf-8",
             204,
             "Blocked by AdShield",
-            mapOf("Cache-Control" to "no-store"),
-            ByteArrayInputStream(ByteArray(0))
+            mapOf(
+                "Cache-Control" to
+                    "no-store"
+            ),
+            ByteArrayInputStream(
+                ByteArray(0)
+            )
         )
-    }
-
-    private fun injectContentFilters() {
-        val prefs = getSharedPreferences(
-            MainActivity.PREFS,
-            MODE_PRIVATE
-        )
-
-        val popupEnabled = prefs.getBoolean(
-            MainActivity.KEY_REDIRECT_PROTECTION,
-            true
-        )
-
-        val overlayEnabled = prefs.getBoolean(
-            MainActivity.KEY_OVERLAY_PROTECTION,
-            true
-        )
-
-        val js = """
-            (function() {
-              if (window.__adShieldInstalled) {
-                if (window.__adShieldClean) window.__adShieldClean();
-                return;
-              }
-              window.__adShieldInstalled = true;
-
-              const selectors = [
-                '.ads-300',
-                '.ads_player',
-                '.pc-catfixx',
-                '.mobile-catfixx',
-                '.mobile-catfish-top',
-                '.Ads',
-                '.Adv',
-                '#invideo_wrapper',
-                '#_preload-ads-1',
-                '[class*="banner-ads"]',
-                '[class*="banner_ads"]',
-                '[class^="ads-"]',
-                '[id^="ads-"]',
-                '[id*="_ads"]',
-                'iframe[src*="doubleclick"]',
-                'iframe[src*="googlesyndication"]',
-                'iframe[src*="adservice"]',
-                'iframe[src*="popads"]',
-                'iframe[src*="adsterra"]'
-              ];
-
-              const hide = (el) => {
-                try {
-                  el.style.setProperty('display', 'none', 'important');
-                  el.style.setProperty('visibility', 'hidden', 'important');
-                  el.style.setProperty('height', '0', 'important');
-                  el.style.setProperty('min-height', '0', 'important');
-                  el.style.setProperty('margin', '0', 'important');
-                  el.style.setProperty('padding', '0', 'important');
-                } catch (_) {}
-              };
-
-              window.__adShieldClean = function() {
-                for (const selector of selectors) {
-                  try {
-                    document.querySelectorAll(selector).forEach(hide);
-                  } catch (_) {}
-                }
-
-                try {
-                  document.querySelectorAll('a[href]').forEach(a => {
-                    const href = a.href || '';
-                    if (href && window.AdShield &&
-                        window.AdShield.isBlockedUrl(href)) {
-                      a.removeAttribute('target');
-                      a.onclick = function(e) {
-                        e.preventDefault();
-                        e.stopImmediatePropagation();
-                        return false;
-                      };
-                    }
-                  });
-                } catch (_) {}
-              };
-
-              const style = document.createElement('style');
-              style.id = 'adshield-style';
-              style.textContent = selectors.join(',') +
-                '{display:none!important;visibility:hidden!important;' +
-                'height:0!important;min-height:0!important;' +
-                'margin:0!important;padding:0!important;}';
-              (document.head || document.documentElement).appendChild(style);
-
-              window.__adShieldClean();
-
-              try {
-                new MutationObserver(function() {
-                  window.__adShieldClean();
-                }).observe(document.documentElement, {
-                  childList: true,
-                  subtree: true,
-                  attributes: true
-                });
-              } catch (_) {}
-
-              if (${popupEnabled}) {
-                window.open = function(url) {
-                  try {
-                    if (!url || (window.AdShield &&
-                        window.AdShield.isBlockedUrl(String(url)))) {
-                      return null;
-                    }
-                  } catch (_) {
-                    return null;
-                  }
-                  return null;
-                };
-
-                document.addEventListener('click', function(e) {
-                  try {
-                    const a = e.target && e.target.closest
-                      ? e.target.closest('a[href]')
-                      : null;
-                    if (!a) return;
-
-                    const href = a.href || '';
-                    if (window.AdShield &&
-                        window.AdShield.isBlockedUrl(href)) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.stopImmediatePropagation();
-                      return false;
-                    }
-
-                    if (a.target === '_blank') {
-                      a.removeAttribute('target');
-                    }
-                  } catch (_) {}
-                }, true);
-              }
-
-
-              if (${overlayEnabled}) {
-                const adWords =
-                  /(\\b|[_-])(ad|ads|advert|advertisement|banner|promo|sponsor|popup|popunder|floating|float|sticky[-_]?ad|qc|quangcao)(\\b|[_-])/i;
-                const gamblingWords =
-                  /(casino|bet|betting|jackpot|debet|yo88|win79|sun88|kubet|jun88|new88|fb88|m88|w88)/i;
-
-                const textOf = (el) => {
-                  try {
-                    return (
-                      (el.id || '') + ' ' +
-                      (el.className || '') + ' ' +
-                      (el.getAttribute && (el.getAttribute('aria-label') || '')) + ' ' +
-                      (el.getAttribute && (el.getAttribute('title') || '')) + ' ' +
-                      (el.textContent || '').slice(0, 180)
-                    );
-                  } catch (_) {
-                    return '';
-                  }
-                };
-
-                const linkedUrls = (el) => {
-                  const urls = [];
-                  try {
-                    if (el.href) urls.push(String(el.href));
-                    if (el.src) urls.push(String(el.src));
-                    el.querySelectorAll &&
-                      el.querySelectorAll('a[href],iframe[src],img[src]').forEach(node => {
-                        if (node.href) urls.push(String(node.href));
-                        if (node.src) urls.push(String(node.src));
-                      });
-                  } catch (_) {}
-                  return urls.slice(0, 12);
-                };
-
-                const hasBlockedUrl = (el) => {
-                  try {
-                    return linkedUrls(el).some(url =>
-                      window.AdShield && window.AdShield.isBlockedUrl(url)
-                    );
-                  } catch (_) {
-                    return false;
-                  }
-                };
-
-                const likelyAdDimensions = (r) => {
-                  const w = Math.round(r.width);
-                  const h = Math.round(r.height);
-                  const presets = [
-                    [320, 50], [320, 100], [300, 250], [336, 280],
-                    [728, 90], [970, 90], [970, 250], [160, 600],
-                    [300, 600], [468, 60]
-                  ];
-                  return presets.some(([pw, ph]) =>
-                    Math.abs(w - pw) <= 45 && Math.abs(h - ph) <= 45
-                  );
-                };
-
-                const isLikelyFloatingAd = (el) => {
-                  try {
-                    if (!el || el === document.body || el === document.documentElement) {
-                      return false;
-                    }
-
-                    const style = getComputedStyle(el);
-                    const pos = style.position;
-                    if (pos !== 'fixed' && pos !== 'sticky') return false;
-                    if (style.display === 'none' || style.visibility === 'hidden') return false;
-
-                    const r = el.getBoundingClientRect();
-                    if (r.width < 90 || r.height < 32) return false;
-
-                    const viewportArea = Math.max(1, innerWidth * innerHeight);
-                    const areaRatio = (r.width * r.height) / viewportArea;
-                    const z = parseInt(style.zIndex || '0', 10) || 0;
-                    const info = textOf(el);
-                    const keywordHit = adWords.test(info) || gamblingWords.test(info);
-                    const blockedLink = hasBlockedUrl(el);
-                    const media = !!(
-                      el.matches &&
-                      el.matches('a,iframe,img,ins,aside') ||
-                      (el.querySelector && el.querySelector('a[href],iframe,img,video'))
-                    );
-
-                    const nearEdge =
-                      r.top <= 90 ||
-                      r.bottom >= innerHeight - 90 ||
-                      r.left <= 40 ||
-                      r.right >= innerWidth - 40;
-
-                    const hugeOverlay =
-                      areaRatio >= 0.16 &&
-                      areaRatio <= 0.80 &&
-                      z >= 1000 &&
-                      media;
-
-                    const adSizedOverlay =
-                      likelyAdDimensions(r) &&
-                      z >= 50 &&
-                      media;
-
-                    const suspiciousFloating =
-                      z >= 500 &&
-                      nearEdge &&
-                      media &&
-                      (keywordHit || blockedLink);
-
-                    // Preserve likely navigation, forms and video controls unless
-                    // they explicitly point to a blocked/ad-like destination.
-                    const hasForm =
-                      !!(el.querySelector && el.querySelector('input,textarea,select,form'));
-                    const semanticUi =
-                      el.matches &&
-                      el.matches('header,nav,[role="navigation"],[role="toolbar"]');
-
-                    if ((hasForm || semanticUi) && !blockedLink && !keywordHit) {
-                      return false;
-                    }
-
-                    return (
-                      blockedLink ||
-                      keywordHit ||
-                      hugeOverlay ||
-                      adSizedOverlay ||
-                      suspiciousFloating
-                    );
-                  } catch (_) {
-                    return false;
-                  }
-                };
-
-                const cleanFloatingAds = () => {
-                  try {
-                    const candidates = document.querySelectorAll(
-                      'div,section,aside,a,iframe,img,ins'
-                    );
-
-                    let scanned = 0;
-                    for (let i = candidates.length - 1; i >= 0 && scanned < 2200; i--, scanned++) {
-                      const el = candidates[i];
-                      if (isLikelyFloatingAd(el)) {
-                        hide(el);
-                        el.setAttribute('data-adshield-overlay', 'blocked');
-                      }
-                    }
-
-                    // AnimeVietSub and similar sites frequently use fixed wrappers
-                    // with generic names but betting/casino images or external links.
-                    if (location.hostname.toLowerCase().includes('animevietsub')) {
-                      document.querySelectorAll(
-                        'body > div, body > a, .modal, .popup, [style*="position: fixed"], [style*="position:fixed"]'
-                      ).forEach(el => {
-                        try {
-                          const r = el.getBoundingClientRect();
-                          const st = getComputedStyle(el);
-                          const info = textOf(el);
-                          const suspicious =
-                            hasBlockedUrl(el) ||
-                            gamblingWords.test(info) ||
-                            (
-                              st.position === 'fixed' &&
-                              (parseInt(st.zIndex || '0', 10) || 0) >= 100 &&
-                              r.width >= 120 &&
-                              r.height >= 40 &&
-                              !!el.querySelector('img,a[href],iframe')
-                            );
-
-                          if (suspicious) hide(el);
-                        } catch (_) {}
-                      });
-                    }
-                  } catch (_) {}
-                };
-
-                const normalizeText = (value) =>
-                  String(value || '')
-                    .toLowerCase()
-                    .normalize('NFD')
-                    .replace(/[\\u0300-\\u036f]/g, '')
-                    .replace(/\\s+/g, ' ')
-                    .trim();
-
-                const findPauseAdContainer = (button) => {
-                  try {
-                    let node = button;
-                    let fallback = button.parentElement;
-
-                    for (let depth = 0; depth < 8 && node; depth++) {
-                      const text = normalizeText(node.innerText);
-                      const rect = node.getBoundingClientRect();
-                      const hasMedia = !!(
-                        node.querySelector &&
-                        node.querySelector('img,iframe,video,[style*="background"]')
-                      );
-
-                      const hasBothActions =
-                        text.includes('dong quang cao') &&
-                        text.includes('dong va xem tiep');
-
-                      const looksLikePauseAd =
-                        (
-                          text.includes('quang cao') ||
-                          hasBothActions
-                        ) &&
-                        rect.width >= 160 &&
-                        rect.height >= 80 &&
-                        rect.height <= innerHeight * 0.85;
-
-                      if (looksLikePauseAd && (hasMedia || hasBothActions)) {
-                        fallback = node;
-                        if (hasBothActions) return node;
-                      }
-
-                      node = node.parentElement;
-                    }
-
-                    return fallback;
-                  } catch (_) {
-                    return button && button.parentElement;
-                  }
-                };
-
-                const cleanPauseAds = () => {
-                  try {
-                    if (!location.hostname.toLowerCase().includes('animevietsub')) {
-                      return;
-                    }
-
-                    const candidates = document.querySelectorAll(
-                      'button,a,[role="button"],div,span'
-                    );
-
-                    for (const el of candidates) {
-                      const text = normalizeText(el.innerText);
-                      if (
-                        text !== 'dong quang cao' &&
-                        text !== 'dong va xem tiep'
-                      ) {
-                        continue;
-                      }
-
-                      const container = findPauseAdContainer(el);
-
-                      if (text === 'dong quang cao') {
-                        try {
-                          el.click();
-                        } catch (_) {}
-                      }
-
-                      if (container) {
-                        hide(container);
-                        try {
-                          container.setAttribute(
-                            'data-adshield-pause-ad',
-                            'blocked'
-                          );
-                        } catch (_) {}
-                      }
-                    }
-
-                    document.querySelectorAll(
-                      '#invideo_wrapper,.ads_player,' +
-                      '[class*="pause-ad"],[class*="pause_ad"],' +
-                      '[id*="pause-ad"],[id*="pause_ad"],' +
-                      '[class*="video-ad"],[id*="video-ad"]'
-                    ).forEach(hide);
-
-                    // Catch a generic ad panel drawn directly over the player.
-                    document.querySelectorAll(
-                      'div,section,aside'
-                    ).forEach(el => {
-                      try {
-                        const text = normalizeText(el.innerText);
-                        if (
-                          !text.includes('quang cao') ||
-                          !(
-                            text.includes('dong quang cao') ||
-                            text.includes('dong va xem tiep')
-                          )
-                        ) {
-                          return;
-                        }
-
-                        const st = getComputedStyle(el);
-                        const rect = el.getBoundingClientRect();
-                        const layered =
-                          st.position === 'absolute' ||
-                          st.position === 'fixed';
-
-                        if (
-                          layered &&
-                          rect.width >= 180 &&
-                          rect.height >= 100 &&
-                          rect.height <= innerHeight * 0.9
-                        ) {
-                          hide(el);
-                        }
-                      } catch (_) {}
-                    });
-                  } catch (_) {}
-                };
-
-                const schedulePauseAdClean = () => {
-                  [0, 30, 90, 180, 400, 800].forEach(delay => {
-                    setTimeout(cleanPauseAds, delay);
-                  });
-                };
-
-                const bindVideoPauseCleaner = () => {
-                  try {
-                    document.querySelectorAll('video').forEach(video => {
-                      if (video.dataset.adshieldPauseBound === '1') return;
-                      video.dataset.adshieldPauseBound = '1';
-
-                      video.addEventListener(
-                        'pause',
-                        schedulePauseAdClean,
-                        true
-                      );
-
-                      video.addEventListener(
-                        'play',
-                        cleanPauseAds,
-                        true
-                      );
-                    });
-                  } catch (_) {}
-                };
-
-                window.__adShieldCleanPauseAds = cleanPauseAds;
-                bindVideoPauseCleaner();
-                cleanPauseAds();
-
-                window.__adShieldCleanFloating = cleanFloatingAds;
-                cleanFloatingAds();
-
-                let overlayTimer = null;
-                const scheduleOverlayClean = () => {
-                  if (overlayTimer) return;
-                  overlayTimer = setTimeout(() => {
-                    overlayTimer = null;
-                    cleanFloatingAds();
-                    cleanPauseAds();
-                    bindVideoPauseCleaner();
-                  }, 180);
-                };
-
-                try {
-                  new MutationObserver(scheduleOverlayClean)
-                    .observe(document.documentElement, {
-                      childList: true,
-                      subtree: true,
-                      attributes: true,
-                      attributeFilter: ['style', 'class', 'src', 'href']
-                    });
-                } catch (_) {}
-
-                setInterval(function() {
-                  cleanFloatingAds();
-                  bindVideoPauseCleaner();
-
-                  try {
-                    const paused = Array.from(
-                      document.querySelectorAll('video')
-                    ).some(video => video.paused && !video.ended);
-
-                    if (paused) {
-                      cleanPauseAds();
-                    }
-                  } catch (_) {}
-                }, 2200);
-
-                document.addEventListener('touchstart', cleanFloatingAds, true);
-                document.addEventListener('click', cleanFloatingAds, true);
-                window.addEventListener('scroll', scheduleOverlayClean, { passive: true });
-              }
-
-              try {
-                const host = location.hostname.toLowerCase();
-                if (host.includes('animevietsub')) {
-                  const animeSelectors = [
-                    '.ads-300',
-                    '.ads_player',
-                    '.pc-catfixx',
-                    '.mobile-catfixx',
-                    '.mobile-catfish-top',
-                    '.Ads',
-                    '.Adv',
-                    '#invideo_wrapper',
-                    '#_preload-ads-1'
-                  ];
-
-                  animeSelectors.forEach(s => {
-                    document.querySelectorAll(s).forEach(hide);
-                  });
-
-                  try {
-                    if ('PopupManager' in window) {
-                      window.PopupManager = {
-                        open: function(){},
-                        show: function(){},
-                        init: function(){}
-                      };
-                    }
-                  } catch (_) {}
-                }
-              } catch (_) {}
-            })();
-        """.trimIndent()
-
-        webView.evaluateJavascript(js, null)
     }
 
     override fun onDestroy() {
         if (::webView.isInitialized) {
-            webView.stopLoading()
-            webView.loadUrl("about:blank")
-            webView.removeAllViews()
-            webView.destroy()
+            try {
+                webView.stopLoading()
+                webView.removeJavascriptInterface(
+                    "AdShield"
+                )
+                webView.webChromeClient =
+                    null
+                webView.webViewClient =
+                    WebViewClient()
+                webView.loadUrl(
+                    "about:blank"
+                )
+                webView.clearHistory()
+                webView.removeAllViews()
+                webView.destroy()
+            } catch (_: Throwable) {
+            }
         }
+
         super.onDestroy()
     }
 
     inner class ShieldBridge {
         @JavascriptInterface
-        fun isBlockedUrl(rawUrl: String): Boolean {
+        fun isBlockedUrl(
+            rawUrl: String
+        ): Boolean {
             return try {
-                shouldBlock(Uri.parse(rawUrl))
+                shouldBlock(
+                    Uri.parse(rawUrl)
+                )
             } catch (_: Exception) {
                 false
             }
@@ -1108,6 +1141,7 @@ class ProtectedBrowserActivity : Activity() {
 
     companion object {
         const val EXTRA_URL = "url"
+
         const val BROWSER_CRASH_FILE =
             "protected_browser_crash.log"
     }
