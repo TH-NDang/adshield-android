@@ -471,9 +471,12 @@ class ProtectedBrowserActivity : Activity() {
                 '.ads-300',
                 '.ads_player',
                 '.pc-catfixx',
+                '.mobile-catfixx',
+                '.mobile-catfish-top',
                 '.Ads',
                 '.Adv',
                 '#invideo_wrapper',
+                '#_preload-ads-1',
                 '[class*="banner-ads"]',
                 '[class*="banner_ads"]',
                 '[class^="ads-"]',
@@ -750,6 +753,165 @@ class ProtectedBrowserActivity : Activity() {
                   } catch (_) {}
                 };
 
+                const normalizeText = (value) =>
+                  String(value || '')
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\\u0300-\\u036f]/g, '')
+                    .replace(/\\s+/g, ' ')
+                    .trim();
+
+                const findPauseAdContainer = (button) => {
+                  try {
+                    let node = button;
+                    let fallback = button.parentElement;
+
+                    for (let depth = 0; depth < 8 && node; depth++) {
+                      const text = normalizeText(node.innerText);
+                      const rect = node.getBoundingClientRect();
+                      const hasMedia = !!(
+                        node.querySelector &&
+                        node.querySelector('img,iframe,video,[style*="background"]')
+                      );
+
+                      const hasBothActions =
+                        text.includes('dong quang cao') &&
+                        text.includes('dong va xem tiep');
+
+                      const looksLikePauseAd =
+                        (
+                          text.includes('quang cao') ||
+                          hasBothActions
+                        ) &&
+                        rect.width >= 160 &&
+                        rect.height >= 80 &&
+                        rect.height <= innerHeight * 0.85;
+
+                      if (looksLikePauseAd && (hasMedia || hasBothActions)) {
+                        fallback = node;
+                        if (hasBothActions) return node;
+                      }
+
+                      node = node.parentElement;
+                    }
+
+                    return fallback;
+                  } catch (_) {
+                    return button && button.parentElement;
+                  }
+                };
+
+                const cleanPauseAds = () => {
+                  try {
+                    if (!location.hostname.toLowerCase().includes('animevietsub')) {
+                      return;
+                    }
+
+                    const candidates = document.querySelectorAll(
+                      'button,a,[role="button"],div,span'
+                    );
+
+                    for (const el of candidates) {
+                      const text = normalizeText(el.innerText);
+                      if (
+                        text !== 'dong quang cao' &&
+                        text !== 'dong va xem tiep'
+                      ) {
+                        continue;
+                      }
+
+                      const container = findPauseAdContainer(el);
+
+                      if (text === 'dong quang cao') {
+                        try {
+                          el.click();
+                        } catch (_) {}
+                      }
+
+                      if (container) {
+                        hide(container);
+                        try {
+                          container.setAttribute(
+                            'data-adshield-pause-ad',
+                            'blocked'
+                          );
+                        } catch (_) {}
+                      }
+                    }
+
+                    document.querySelectorAll(
+                      '#invideo_wrapper,.ads_player,' +
+                      '[class*="pause-ad"],[class*="pause_ad"],' +
+                      '[id*="pause-ad"],[id*="pause_ad"],' +
+                      '[class*="video-ad"],[id*="video-ad"]'
+                    ).forEach(hide);
+
+                    // Catch a generic ad panel drawn directly over the player.
+                    document.querySelectorAll(
+                      'div,section,aside'
+                    ).forEach(el => {
+                      try {
+                        const text = normalizeText(el.innerText);
+                        if (
+                          !text.includes('quang cao') ||
+                          !(
+                            text.includes('dong quang cao') ||
+                            text.includes('dong va xem tiep')
+                          )
+                        ) {
+                          return;
+                        }
+
+                        const st = getComputedStyle(el);
+                        const rect = el.getBoundingClientRect();
+                        const layered =
+                          st.position === 'absolute' ||
+                          st.position === 'fixed';
+
+                        if (
+                          layered &&
+                          rect.width >= 180 &&
+                          rect.height >= 100 &&
+                          rect.height <= innerHeight * 0.9
+                        ) {
+                          hide(el);
+                        }
+                      } catch (_) {}
+                    });
+                  } catch (_) {}
+                };
+
+                const schedulePauseAdClean = () => {
+                  [0, 30, 90, 180, 400, 800].forEach(delay => {
+                    setTimeout(cleanPauseAds, delay);
+                  });
+                };
+
+                const bindVideoPauseCleaner = () => {
+                  try {
+                    document.querySelectorAll('video').forEach(video => {
+                      if (video.dataset.adshieldPauseBound === '1') return;
+                      video.dataset.adshieldPauseBound = '1';
+
+                      video.addEventListener(
+                        'pause',
+                        schedulePauseAdClean,
+                        true
+                      );
+
+                      video.addEventListener(
+                        'play',
+                        cleanPauseAds,
+                        true
+                      );
+                    });
+                  } catch (_) {}
+                };
+
+                window.__adShieldCleanPauseAds = cleanPauseAds;
+                bindVideoPauseCleaner();
+                cleanPauseAds();
+
                 window.__adShieldCleanFloating = cleanFloatingAds;
                 cleanFloatingAds();
 
@@ -759,7 +921,9 @@ class ProtectedBrowserActivity : Activity() {
                   overlayTimer = setTimeout(() => {
                     overlayTimer = null;
                     cleanFloatingAds();
-                  }, 120);
+                    cleanPauseAds();
+                    bindVideoPauseCleaner();
+                  }, 90);
                 };
 
                 try {
@@ -772,7 +936,20 @@ class ProtectedBrowserActivity : Activity() {
                     });
                 } catch (_) {}
 
-                setInterval(cleanFloatingAds, 1200);
+                setInterval(function() {
+                  cleanFloatingAds();
+                  bindVideoPauseCleaner();
+
+                  try {
+                    const paused = Array.from(
+                      document.querySelectorAll('video')
+                    ).some(video => video.paused && !video.ended);
+
+                    if (paused) {
+                      cleanPauseAds();
+                    }
+                  } catch (_) {}
+                }, 450);
 
                 document.addEventListener('touchstart', cleanFloatingAds, true);
                 document.addEventListener('click', cleanFloatingAds, true);
@@ -786,9 +963,12 @@ class ProtectedBrowserActivity : Activity() {
                     '.ads-300',
                     '.ads_player',
                     '.pc-catfixx',
+                    '.mobile-catfixx',
+                    '.mobile-catfish-top',
                     '.Ads',
                     '.Adv',
-                    '#invideo_wrapper'
+                    '#invideo_wrapper',
+                    '#_preload-ads-1'
                   ];
 
                   animeSelectors.forEach(s => {
