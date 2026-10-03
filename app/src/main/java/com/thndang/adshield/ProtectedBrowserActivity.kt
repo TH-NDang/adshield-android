@@ -13,6 +13,8 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -190,6 +192,24 @@ class ProtectedBrowserActivity : Activity() {
                     return false
                 }
 
+                override fun onPageStarted(
+                    view: WebView?,
+                    url: String?,
+                    favicon: android.graphics.Bitmap?
+                ) {
+                    super.onPageStarted(view, url, favicon)
+
+                    if (!WebViewFeature.isFeatureSupported(
+                            WebViewFeature.DOCUMENT_START_SCRIPT
+                        )
+                    ) {
+                        view?.evaluateJavascript(
+                            buildDocumentStartScript(),
+                            null
+                        )
+                    }
+                }
+
                 override fun onPageFinished(
                     view: WebView?,
                     url: String?
@@ -211,6 +231,165 @@ class ProtectedBrowserActivity : Activity() {
         )
 
         setContentView(root)
+        installDocumentStartProtection()
+    }
+
+    private fun installDocumentStartProtection() {
+        if (
+            WebViewFeature.isFeatureSupported(
+                WebViewFeature.DOCUMENT_START_SCRIPT
+            )
+        ) {
+            WebViewCompat.addDocumentStartJavaScript(
+                webView,
+                buildDocumentStartScript(),
+                setOf("*")
+            )
+
+            statusText.text =
+                "🛡 Lọc trước khi trang chạy + lọc quảng cáo trong player"
+        } else {
+            statusText.text =
+                "🛡 Lọc request + fallback DOM filter"
+        }
+    }
+
+    private fun buildDocumentStartScript(): String {
+        val prefs = getSharedPreferences(
+            MainActivity.PREFS,
+            MODE_PRIVATE
+        )
+
+        val popupEnabled = prefs.getBoolean(
+            MainActivity.KEY_REDIRECT_PROTECTION,
+            true
+        )
+
+        val overlayEnabled = prefs.getBoolean(
+            MainActivity.KEY_OVERLAY_PROTECTION,
+            true
+        )
+
+        return """
+            (function() {
+              if (window.__adShieldDocumentStart) return;
+              window.__adShieldDocumentStart = true;
+
+              const css = [
+                '.ads-300',
+                '.ads_player',
+                '.pc-catfixx',
+                '.mobile-catfixx',
+                '.mobile-catfish-top',
+                '.Ads',
+                '.Adv',
+                '#invideo_wrapper',
+                '#_preload-ads-1',
+                '[class*="banner-ads"]',
+                '[class*="banner_ads"]',
+                '[class*="floating-ad"]',
+                '[class*="float-ad"]',
+                '[class*="popup-ad"]',
+                '[id*="floating-ad"]',
+                '[id*="popup-ad"]'
+              ].join(',') +
+                '{display:none!important;visibility:hidden!important;' +
+                'opacity:0!important;pointer-events:none!important;' +
+                'height:0!important;min-height:0!important;' +
+                'max-height:0!important;margin:0!important;padding:0!important;}';
+
+              const installStyle = function() {
+                try {
+                  if (document.getElementById('adshield-document-start-style')) {
+                    return true;
+                  }
+                  const root = document.head || document.documentElement;
+                  if (!root) return false;
+                  const style = document.createElement('style');
+                  style.id = 'adshield-document-start-style';
+                  style.textContent = css;
+                  root.appendChild(style);
+                  return true;
+                } catch (_) {
+                  return false;
+                }
+              };
+
+              if (!installStyle()) {
+                try {
+                  const rootWatcher = new MutationObserver(function(_, obs) {
+                    if (installStyle()) obs.disconnect();
+                  });
+                  rootWatcher.observe(document, {
+                    childList: true,
+                    subtree: true
+                  });
+                } catch (_) {}
+              }
+
+              if (${popupEnabled}) {
+                try {
+                  Object.defineProperty(window, 'open', {
+                    configurable: true,
+                    writable: false,
+                    value: function() { return null; }
+                  });
+                } catch (_) {
+                  try {
+                    window.open = function() { return null; };
+                  } catch (_) {}
+                }
+              }
+
+              try {
+                if (
+                  location.hostname &&
+                  location.hostname.toLowerCase().includes('animevietsub')
+                ) {
+                  const popupStub = {
+                    open: function(){},
+                    show: function(){},
+                    init: function(){},
+                    create: function(){},
+                    trigger: function(){}
+                  };
+
+                  try {
+                    Object.defineProperty(window, 'PopupManager', {
+                      configurable: true,
+                      get: function() { return popupStub; },
+                      set: function() {}
+                    });
+                  } catch (_) {}
+                }
+              } catch (_) {}
+
+              const hideNow = function() {
+                try {
+                  document.querySelectorAll(
+                    '.ads-300,.ads_player,.pc-catfixx,.mobile-catfixx,' +
+                    '.mobile-catfish-top,.Ads,.Adv,#invideo_wrapper,' +
+                    '#_preload-ads-1'
+                  ).forEach(function(el) {
+                    el.style.setProperty('display', 'none', 'important');
+                    el.style.setProperty('visibility', 'hidden', 'important');
+                    el.style.setProperty('pointer-events', 'none', 'important');
+                  });
+                } catch (_) {}
+              };
+
+              try {
+                new MutationObserver(hideNow).observe(document, {
+                  childList: true,
+                  subtree: true
+                });
+              } catch (_) {}
+
+              if (${overlayEnabled}) {
+                window.__adShieldEarlyOverlayEnabled = true;
+              }
+            })();
+        """.trimIndent()
     }
 
     private fun openAddress() {
