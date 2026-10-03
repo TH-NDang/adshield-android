@@ -33,6 +33,7 @@ class MainActivity : Activity() {
     private lateinit var countText: TextView
     private lateinit var totalText: TextView
     private lateinit var actionButton: Button
+    private lateinit var vpnLogButton: Button
     private lateinit var redirectSwitch: Switch
     private lateinit var redirectStatsText: TextView
     private lateinit var rulesContainer: LinearLayout
@@ -213,6 +214,53 @@ class MainActivity : Activity() {
             setPadding(0, dp(8), 0, 0)
         }
         statusCard.addView(totalText)
+
+        vpnLogButton = Button(this).apply {
+            text = "Xem log lỗi VPN"
+            isAllCaps = false
+            visibility = View.GONE
+
+            setOnClickListener {
+                val file = File(
+                    filesDir,
+                    DnsVpnService.SERVICE_ERROR_FILE
+                )
+
+                val raw = runCatching {
+                    file.readText()
+                }.getOrElse {
+                    "Không đọc được log: " +
+                        (it.message ?: "lỗi không xác định")
+                }
+
+                val message =
+                    if (raw.length > 7000) {
+                        raw.takeLast(7000)
+                    } else {
+                        raw
+                    }
+
+                AlertDialog.Builder(
+                    this@MainActivity
+                )
+                    .setTitle("Log lỗi VPN")
+                    .setMessage(message)
+                    .setPositiveButton(
+                        "Đóng",
+                        null
+                    )
+                    .setNeutralButton(
+                        "Xóa log"
+                    ) { _, _ ->
+                        file.delete()
+                        vpnLogButton.visibility =
+                            View.GONE
+                    }
+                    .show()
+            }
+        }
+
+        statusCard.addView(vpnLogButton)
 
         actionButton = Button(this).apply {
             isAllCaps = false
@@ -1013,6 +1061,21 @@ class MainActivity : Activity() {
             },
             22f * resources.displayMetrics.density
         )
+
+        if (::vpnLogButton.isInitialized) {
+            vpnLogButton.visibility =
+                if (
+                    File(
+                        filesDir,
+                        DnsVpnService
+                            .SERVICE_ERROR_FILE
+                    ).isFile
+                ) {
+                    View.VISIBLE
+                } else {
+                    View.GONE
+                }
+        }
 
         refreshFilterStatus()
         refreshRulesUi()
