@@ -21,6 +21,7 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -357,6 +358,43 @@ class MainActivity : Activity() {
                 )
             }
         })
+
+        val crashFile = File(
+            filesDir,
+            ProtectedBrowserActivity.BROWSER_CRASH_FILE
+        )
+
+        if (crashFile.isFile) {
+            browserCard.addView(Button(this).apply {
+                text = "Xem log lỗi trình duyệt gần nhất"
+                isAllCaps = false
+                setOnClickListener {
+                    val raw = runCatching {
+                        crashFile.readText()
+                    }.getOrElse {
+                        "Không đọc được log: " +
+                            (it.message ?: "lỗi không xác định")
+                    }
+
+                    val text =
+                        if (raw.length > 7000) {
+                            raw.takeLast(7000)
+                        } else {
+                            raw
+                        }
+
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Log lỗi trình duyệt")
+                        .setMessage(text)
+                        .setPositiveButton("Đóng", null)
+                        .setNeutralButton("Xóa log") { _, _ ->
+                            crashFile.delete()
+                            toast("Đã xóa log lỗi")
+                        }
+                        .show()
+                }
+            })
+        }
 
         val redirectCard = card()
         root.addView(
