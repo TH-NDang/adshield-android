@@ -44,6 +44,7 @@ class MainActivity : Activity() {
 
     private var dialogShowing = false
     private var lastRulesSignature = ""
+    private var lastVpnErrorShown = ""
 
     private val handler = Handler(Looper.getMainLooper())
     private val refreshTask = object : Runnable {
@@ -855,18 +856,55 @@ class MainActivity : Activity() {
     }
 
     private fun startShield() {
+        getSharedPreferences(PREFS, MODE_PRIVATE)
+            .edit()
+            .remove(KEY_VPN_START_ERROR)
+            .apply()
+
         val intent = Intent(
             this,
             DnsVpnService::class.java
         ).setAction(DnsVpnService.ACTION_START)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            if (
+                Build.VERSION.SDK_INT >=
+                    Build.VERSION_CODES.O
+            ) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (error: Throwable) {
+            val message =
+                error.javaClass.simpleName +
+                    ": " +
+                    (
+                        error.message
+                            ?: "không có thông báo"
+                        )
+
+            getSharedPreferences(
+                PREFS,
+                MODE_PRIVATE
+            )
+                .edit()
+                .putString(
+                    KEY_VPN_START_ERROR,
+                    message
+                )
+                .apply()
+
+            toast(
+                "Không thể khởi động VPN: " +
+                    message
+            )
         }
 
-        handler.postDelayed({ refreshUi() }, 400)
+        handler.postDelayed(
+            { refreshUi() },
+            250
+        )
     }
 
     private fun stopShield() {
@@ -897,16 +935,51 @@ class MainActivity : Activity() {
         val redirectFilters =
             prefs.getInt(KEY_REDIRECT_FILTER_COUNT, 0)
 
+        val vpnStartError =
+            prefs.getString(
+                KEY_VPN_START_ERROR,
+                null
+            )
+
         statusText.text =
-            if (running) "Đang bảo vệ" else "Đang tắt"
+            when {
+                running ->
+                    "Đang bảo vệ"
+
+                !vpnStartError.isNullOrBlank() ->
+                    "Không thể bật bảo vệ"
+
+                else ->
+                    "Đang tắt"
+            }
 
         statusText.setTextColor(
-            if (running) {
-                Color.rgb(3, 152, 85)
-            } else {
-                Color.rgb(217, 45, 32)
+            when {
+                running ->
+                    Color.rgb(3, 152, 85)
+
+                !vpnStartError.isNullOrBlank() ->
+                    Color.rgb(217, 45, 32)
+
+                else ->
+                    Color.rgb(102, 112, 133)
             }
         )
+
+        if (
+            !vpnStartError.isNullOrBlank() &&
+            vpnStartError != lastVpnErrorShown
+        ) {
+            lastVpnErrorShown =
+                vpnStartError
+
+            Toast.makeText(
+                this,
+                "VPN lỗi: " +
+                    vpnStartError,
+                Toast.LENGTH_LONG
+            ).show()
+        }
 
         countText.text = "%,d".format(blocked)
         totalText.text =
@@ -921,7 +994,16 @@ class MainActivity : Activity() {
                 )
 
         actionButton.text =
-            if (running) "Tắt bảo vệ" else "Bật bảo vệ"
+            when {
+                running ->
+                    "Tắt bảo vệ"
+
+                !vpnStartError.isNullOrBlank() ->
+                    "Thử bật lại"
+
+                else ->
+                    "Bật bảo vệ"
+            }
 
         actionButton.background = rounded(
             if (running) {
@@ -952,6 +1034,11 @@ class MainActivity : Activity() {
         const val KEY_RUNNING = "vpn_running"
         const val KEY_BLOCKED = "blocked_count"
         const val KEY_TOTAL = "total_count"
+
+        const val KEY_VPN_START_ERROR =
+            "vpn_start_error"
+        const val KEY_VPN_FILTER_LOAD_ERROR =
+            "vpn_filter_load_error"
 
         const val KEY_REDIRECT_PROTECTION =
             "redirect_protection_enabled"
