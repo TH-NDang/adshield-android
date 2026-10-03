@@ -5,54 +5,70 @@ import java.io.File
 import java.util.Locale
 
 class DomainBlocklist private constructor(
-    private val domains: Set<String>
+    private val hashes: LongArray
 ) {
     val size: Int
-        get() = domains.size
+        get() = hashes.size
 
     fun isBlocked(rawDomain: String): Boolean {
         var candidate = normalize(rawDomain)
         if (candidate.isEmpty()) return false
 
         while (true) {
-            if (domains.contains(candidate)) return true
+            if (containsHash(hash64(candidate))) return true
+
             val dot = candidate.indexOf('.')
             if (dot < 0) return false
+
             candidate = candidate.substring(dot + 1)
         }
     }
 
+    private fun containsHash(value: Long): Boolean =
+        hashes.binarySearch(value) >= 0
+
     companion object {
         fun empty(): DomainBlocklist =
-            DomainBlocklist(emptySet())
+            DomainBlocklist(LongArray(0))
 
         fun load(
             context: Context,
             assetName: String,
             remoteFileName: String? = null
         ): DomainBlocklist {
-            val domains = HashSet<String>(131_072)
+            val builder = LongArrayBuilder()
 
             context.assets.open(assetName)
                 .bufferedReader()
                 .useLines { lines ->
                     lines.forEach { line ->
-                        parseRule(line)?.let(domains::add)
+                        parseRule(line)?.let { domain ->
+                            builder.add(hash64(domain))
+                        }
                     }
                 }
 
             if (remoteFileName != null) {
-                val remote = File(context.filesDir, remoteFileName)
+                val remote = File(
+                    context.filesDir,
+                    remoteFileName
+                )
+
                 if (remote.isFile) {
-                    remote.bufferedReader().useLines { lines ->
-                        lines.forEach { line ->
-                            parseRule(line)?.let(domains::add)
+                    remote.bufferedReader()
+                        .useLines { lines ->
+                            lines.forEach { line ->
+                                parseRule(line)?.let { domain ->
+                                    builder.add(hash64(domain))
+                                }
+                            }
                         }
-                    }
                 }
             }
 
-            return DomainBlocklist(domains)
+            return DomainBlocklist(
+                builder.toSortedUniqueArray()
+            )
         }
 
         fun parseRule(line: String): String? {
@@ -77,6 +93,7 @@ class DomainBlocklist private constructor(
                 clean = clean.substringBefore("#").trim()
 
                 val parts = clean.split(Regex("\\s+"))
+
                 if (
                     parts.size >= 2 &&
                     looksLikeHostsPrefix(parts.first())
@@ -122,7 +139,9 @@ class DomainBlocklist private constructor(
             return clean
         }
 
-        private fun looksLikeHostsPrefix(value: String): Boolean =
+        private fun looksLikeHostsPrefix(
+            value: String
+        ): Boolean =
             value == "0" ||
                 value == "::" ||
                 value == "localhost" ||
@@ -134,5 +153,58 @@ class DomainBlocklist private constructor(
             value.trim()
                 .trimEnd('.')
                 .lowercase(Locale.US)
+
+        private fun hash64(value: String): Long {
+            var hash = -3750763034362895579L
+            val prime = 1099511628211L
+
+            for (ch in value) {
+                hash = hash xor ch.code.toLong()
+                hash *= prime
+            }
+
+            return hash
+        }
+    }
+}
+
+private class LongArrayBuilder(
+    initialCapacity: Int = 16_384
+) {
+    private var data = LongArray(initialCapacity)
+    private var count = 0
+
+    fun add(value: Long) {
+        if (count == data.size) {
+            data = data.copyOf(
+                (data.size * 2)
+                    .coerceAtLeast(data.size + 1)
+            )
+        }
+
+        data[count] = value
+        count++
+    }
+
+    fun toSortedUniqueArray(): LongArray {
+        if (count == 0) return LongArray(0)
+
+        val result = data.copyOf(count)
+        result.sort()
+
+        var write = 1
+
+        for (read in 1 until result.size) {
+            if (result[read] != result[write - 1]) {
+                result[write] = result[read]
+                write++
+            }
+        }
+
+        return if (write == result.size) {
+            result
+        } else {
+            result.copyOf(write)
+        }
     }
 }
