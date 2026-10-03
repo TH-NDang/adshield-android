@@ -15,7 +15,8 @@
 
         <activity
             android:name=".ProtectedBrowserActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:process=":protected_browser" />
 
         <activity
             android:name=".MainActivity"
