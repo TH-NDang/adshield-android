@@ -5,6 +5,8 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.os.Message
+import android.util.Log
+import java.io.File
 import android.view.Gravity
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -35,8 +37,16 @@ class ProtectedBrowserActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = Color.rgb(16, 24, 40)
 
-        loadFilters()
-        buildUi()
+        installCrashReporter()
+
+        try {
+            loadFilters()
+            buildUi()
+        } catch (error: Throwable) {
+            recordBrowserCrash(error)
+            showBrowserInitError(error)
+            return
+        }
 
         val initial = intent.getStringExtra(EXTRA_URL)
             ?: "https://animevietsub.nl"
@@ -44,16 +54,90 @@ class ProtectedBrowserActivity : Activity() {
         openAddress()
     }
 
+    private fun installCrashReporter() {
+        val previous =
+            Thread.getDefaultUncaughtExceptionHandler()
+
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            try {
+                recordBrowserCrash(error)
+            } catch (_: Throwable) {
+            }
+
+            previous?.uncaughtException(thread, error)
+        }
+    }
+
+    private fun recordBrowserCrash(error: Throwable) {
+        try {
+            val logText = buildString {
+                appendLine("AdShield protected browser crash")
+                appendLine("Time: " + System.currentTimeMillis())
+                appendLine("Device: " + android.os.Build.MANUFACTURER +
+                    " " + android.os.Build.MODEL)
+                appendLine("Android: " + android.os.Build.VERSION.RELEASE)
+                appendLine()
+                appendLine(Log.getStackTraceString(error))
+            }
+
+            File(
+                filesDir,
+                BROWSER_CRASH_FILE
+            ).writeText(logText)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun showBrowserInitError(error: Throwable) {
+        val density = resources.displayMetrics.density
+        fun dp(value: Int) = (value * density).toInt()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(24), dp(24), dp(24), dp(24))
+            setBackgroundColor(Color.WHITE)
+        }
+
+        root.addView(TextView(this).apply {
+            text = "Không thể khởi tạo trình duyệt bảo vệ"
+            textSize = 20f
+            setTextColor(Color.rgb(180, 35, 24))
+            gravity = Gravity.CENTER
+        })
+
+        root.addView(TextView(this).apply {
+            text =
+                "AdShield đã lưu log lỗi thay vì để toàn bộ ứng dụng crash.\n\n" +
+                    (error.javaClass.simpleName) +
+                    ": " +
+                    (error.message ?: "không có thông báo")
+            textSize = 14f
+            setTextColor(Color.rgb(52, 64, 84))
+            gravity = Gravity.CENTER
+            setPadding(0, dp(14), 0, dp(14))
+        })
+
+        root.addView(Button(this).apply {
+            text = "Quay lại"
+            isAllCaps = false
+            setOnClickListener { finish() }
+        })
+
+        setContentView(root)
+    }
+
     private fun loadFilters() {
+        // The VPN service already owns the very large downloaded lists.
+        // Keep the protected browser lightweight so opening WebView does not
+        // duplicate hundreds of thousands of rules in the same app session.
         adBlocklist = DomainBlocklist.load(
             this,
-            "blocklist.txt",
-            FilterUpdater.MAIN_REMOTE_FILE
+            "blocklist.txt"
         )
         popupBlocklist = DomainBlocklist.load(
             this,
-            "popup_redirect_blocklist.txt",
-            FilterUpdater.POPUP_REMOTE_FILE
+            "popup_redirect_blocklist.txt"
         )
     }
 
@@ -235,22 +319,31 @@ class ProtectedBrowserActivity : Activity() {
     }
 
     private fun installDocumentStartProtection() {
-        if (
-            WebViewFeature.isFeatureSupported(
-                WebViewFeature.DOCUMENT_START_SCRIPT
-            )
-        ) {
-            WebViewCompat.addDocumentStartJavaScript(
-                webView,
-                buildDocumentStartScript(),
-                setOf("*")
-            )
+        try {
+            if (
+                WebViewFeature.isFeatureSupported(
+                    WebViewFeature.DOCUMENT_START_SCRIPT
+                )
+            ) {
+                WebViewCompat.addDocumentStartJavaScript(
+                    webView,
+                    buildDocumentStartScript(),
+                    setOf("*")
+                )
 
+                statusText.text =
+                    "🛡 Lọc sớm + lọc quảng cáo trong player"
+            } else {
+                statusText.text =
+                    "🛡 Lọc request + fallback DOM filter"
+            }
+        } catch (error: Throwable) {
+            // Some vendor WebView builds may expose a feature but still fail
+            // while registering the document-start script. Continue with the
+            // onPageStarted/onPageFinished fallback instead of crashing.
+            recordBrowserCrash(error)
             statusText.text =
-                "🛡 Lọc trước khi trang chạy + lọc quảng cáo trong player"
-        } else {
-            statusText.text =
-                "🛡 Lọc request + fallback DOM filter"
+                "🛡 Chế độ tương thích WebView"
         }
     }
 
@@ -1015,5 +1108,7 @@ class ProtectedBrowserActivity : Activity() {
 
     companion object {
         const val EXTRA_URL = "url"
+        const val BROWSER_CRASH_FILE =
+            "protected_browser_crash.log"
     }
 }
