@@ -10,12 +10,13 @@ android {
         applicationId = "com.thndang.adshield"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.9.0"
+        versionCode = 11
+        versionName = "1.0.0"
     }
 }
 
 
 dependencies {
-    implementation("androidx.webkit:webkit:1.16.0")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.81")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.81")
 }
