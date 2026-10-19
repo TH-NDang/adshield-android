@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -34,6 +35,8 @@ class MainActivity : Activity() {
     private lateinit var totalText: TextView
     private lateinit var actionButton: Button
     private lateinit var vpnLogButton: Button
+    private lateinit var httpsStatusText: TextView
+    private lateinit var httpsFilterSwitch: Switch
     private lateinit var redirectSwitch: Switch
     private lateinit var redirectStatsText: TextView
     private lateinit var rulesContainer: LinearLayout
@@ -109,6 +112,62 @@ class MainActivity : Activity() {
             resultCode == RESULT_OK
         ) {
             startShield()
+            return
+        }
+
+        if (
+            requestCode == CA_EXPORT_REQUEST &&
+            resultCode == RESULT_OK
+        ) {
+            val uri =
+                data?.data
+                    ?: return
+
+            thread(
+                start = true,
+                isDaemon = true,
+                name = "AdShield-CA-export"
+            ) {
+                val result =
+                    runCatching {
+                        val bytes =
+                            HttpsCertificateAuthority
+                                .certificateBytes(
+                                    applicationContext
+                                )
+
+                        contentResolver
+                            .openOutputStream(
+                                uri
+                            )
+                            ?.use {
+                                it.write(
+                                    bytes
+                                )
+                            }
+                            ?: error(
+                                "Không mở được file đích"
+                            )
+                    }
+
+                runOnUiThread {
+                    result.onSuccess {
+                        toast(
+                            "Đã xuất adshield-ca.crt. Hãy cài file này làm Chứng chỉ CA."
+                        )
+                    }.onFailure {
+                        toast(
+                            "Xuất CA thất bại: " +
+                                (
+                                    it.message
+                                        ?: "lỗi không xác định"
+                                    )
+                        )
+                    }
+
+                    refreshHttpsStatus()
+                }
+            }
         }
     }
 
@@ -122,8 +181,11 @@ class MainActivity : Activity() {
             changed = true
         }
 
-        if (!prefs.contains(KEY_OVERLAY_PROTECTION)) {
-            editor.putBoolean(KEY_OVERLAY_PROTECTION, true)
+        if (!prefs.contains(KEY_HTTPS_FILTERING)) {
+            editor.putBoolean(
+                KEY_HTTPS_FILTERING,
+                false
+            )
             changed = true
         }
 
@@ -336,9 +398,9 @@ class MainActivity : Activity() {
         }
         filterCard.addView(filterUpdateButton)
 
-        val browserCard = card()
+        val httpsCard = card()
         root.addView(
-            browserCard,
+            httpsCard,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -347,33 +409,64 @@ class MainActivity : Activity() {
             }
         )
 
-        browserCard.addView(TextView(this).apply {
-            text = "Trình duyệt bảo vệ"
-            textSize = 17f
-            setTextColor(Color.rgb(16, 24, 40))
-        })
-
-        browserCard.addView(TextView(this).apply {
-            text =
-                "Dùng khi một trang vẫn còn banner, popup hoặc quảng cáo " +
-                    "được chèn trực tiếp vào HTML. Chế độ này lọc request " +
-                    "và ẩn phần tử quảng cáo ngay trong trang."
-            textSize = 13f
-            setTextColor(Color.rgb(102, 112, 133))
-            setPadding(0, dp(7), 0, dp(8))
-        })
-
-        val overlayRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(4), 0, dp(8))
-        }
-
-        overlayRow.addView(
+        httpsCard.addView(
             TextView(this).apply {
-                text = "Xóa quảng cáo nổi / overlay"
+                text = "Lọc HTTPS toàn hệ thống"
+                textSize = 17f
+                setTextColor(
+                    Color.rgb(
+                        16,
+                        24,
+                        40
+                    )
+                )
+            }
+        )
+
+        httpsCard.addView(
+            TextView(this).apply {
+                text =
+                    "Dùng CA cá nhân của AdShield + local HTTPS proxy. " +
+                    "Trình duyệt/app nào tin CA và dùng proxy hệ thống có thể " +
+                    "được lọc request, banner và popup ngay trong HTTPS. " +
+                    "App dùng certificate pinning nên được thêm vào danh sách bỏ qua VPN."
+
+                textSize = 13f
+                setTextColor(
+                    Color.rgb(
+                        102,
+                        112,
+                        133
+                    )
+                )
+                setPadding(
+                    0,
+                    dp(7),
+                    0,
+                    dp(8)
+                )
+            }
+        )
+
+        val httpsRow =
+            LinearLayout(this).apply {
+                orientation =
+                    LinearLayout.HORIZONTAL
+                gravity =
+                    Gravity.CENTER_VERTICAL
+            }
+
+        httpsRow.addView(
+            TextView(this).apply {
+                text = "HTTPS filtering"
                 textSize = 14f
-                setTextColor(Color.rgb(52, 64, 84))
+                setTextColor(
+                    Color.rgb(
+                        52,
+                        64,
+                        84
+                    )
+                )
             },
             LinearLayout.LayoutParams(
                 0,
@@ -382,76 +475,166 @@ class MainActivity : Activity() {
             )
         )
 
-        overlayRow.addView(Switch(this).apply {
-            isChecked = getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getBoolean(KEY_OVERLAY_PROTECTION, true)
-            setOnCheckedChangeListener { _, enabled ->
-                getSharedPreferences(PREFS, MODE_PRIVATE)
-                    .edit()
-                    .putBoolean(KEY_OVERLAY_PROTECTION, enabled)
-                    .apply()
-
-                toast(
-                    if (enabled) {
-                        "Đã bật xóa quảng cáo nổi"
-                    } else {
-                        "Đã tắt xóa quảng cáo nổi"
-                    }
-                )
-            }
-        })
-
-        browserCard.addView(overlayRow)
-
-        browserCard.addView(Button(this).apply {
-            text = "Mở trình duyệt bảo vệ"
-            isAllCaps = false
-            setOnClickListener {
-                startActivity(
-                    Intent(
-                        this@MainActivity,
-                        ProtectedBrowserActivity::class.java
+        httpsFilterSwitch =
+            Switch(this).apply {
+                isChecked =
+                    getSharedPreferences(
+                        PREFS,
+                        MODE_PRIVATE
+                    ).getBoolean(
+                        KEY_HTTPS_FILTERING,
+                        false
                     )
-                )
-            }
-        })
 
-        val crashFile = File(
-            filesDir,
-            ProtectedBrowserActivity.BROWSER_CRASH_FILE
+                setOnCheckedChangeListener {
+                    button,
+                    enabled ->
+
+                    if (
+                        enabled &&
+                        !HttpsCertificateAuthority
+                            .isReady(
+                                this@MainActivity
+                            )
+                    ) {
+                        getSharedPreferences(
+                            PREFS,
+                            MODE_PRIVATE
+                        )
+                            .edit()
+                            .putBoolean(
+                                KEY_HTTPS_FILTERING,
+                                false
+                            )
+                            .apply()
+
+                        if (button.isChecked) {
+                            button.isChecked =
+                                false
+                        }
+
+                        toast(
+                            "Hãy tạo, xuất và cài CA AdShield trước."
+                        )
+
+                        return@setOnCheckedChangeListener
+                    }
+
+                    getSharedPreferences(
+                        PREFS,
+                        MODE_PRIVATE
+                    )
+                        .edit()
+                        .putBoolean(
+                            KEY_HTTPS_FILTERING,
+                            enabled
+                        )
+                        .apply()
+
+                    restartVpnForSettings()
+                    refreshHttpsStatus()
+                }
+            }
+
+        httpsRow.addView(
+            httpsFilterSwitch
         )
 
-        if (crashFile.isFile) {
-            browserCard.addView(Button(this).apply {
-                text = "Xem log lỗi trình duyệt gần nhất"
-                isAllCaps = false
-                setOnClickListener {
-                    val raw = runCatching {
-                        crashFile.readText()
-                    }.getOrElse {
-                        "Không đọc được log: " +
-                            (it.message ?: "lỗi không xác định")
+        httpsCard.addView(
+            httpsRow
+        )
+
+        httpsStatusText =
+            TextView(this).apply {
+                textSize = 12f
+                setTextColor(
+                    Color.rgb(
+                        102,
+                        112,
+                        133
+                    )
+                )
+                setPadding(
+                    0,
+                    dp(8),
+                    0,
+                    dp(8)
+                )
+            }
+
+        httpsCard.addView(
+            httpsStatusText
+        )
+
+        httpsCard.addView(
+            Button(this).apply {
+                text =
+                    if (
+                        HttpsCertificateAuthority
+                            .isReady(
+                                this@MainActivity
+                            )
+                    ) {
+                        "Xuất lại chứng chỉ CA (.crt)"
+                    } else {
+                        "Tạo và xuất chứng chỉ CA (.crt)"
                     }
 
-                    val text =
-                        if (raw.length > 7000) {
-                            raw.takeLast(7000)
-                        } else {
-                            raw
-                        }
+                isAllCaps = false
 
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle("Log lỗi trình duyệt")
-                        .setMessage(text)
-                        .setPositiveButton("Đóng", null)
-                        .setNeutralButton("Xóa log") { _, _ ->
-                            crashFile.delete()
-                            toast("Đã xóa log lỗi")
-                        }
-                        .show()
+                setOnClickListener {
+                    prepareCaExport()
                 }
-            })
-        }
+            }
+        )
+
+        httpsCard.addView(
+            Button(this).apply {
+                text =
+                    "Mở Cài đặt để cài CA"
+                isAllCaps = false
+
+                setOnClickListener {
+                    runCatching {
+                        startActivity(
+                            Intent(
+                                Settings.ACTION_SECURITY_SETTINGS
+                            )
+                        )
+                    }.onFailure {
+                        startActivity(
+                            Intent(
+                                Settings.ACTION_SETTINGS
+                            )
+                        )
+                    }
+                }
+            }
+        )
+
+        httpsCard.addView(
+            TextView(this).apply {
+                text =
+                    "Sau khi xuất file: Cài đặt → Bảo mật / Mã hóa & thông tin đăng nhập " +
+                    "→ Cài đặt chứng chỉ → Chứng chỉ CA → chọn file adshield-ca.crt. " +
+                    "Android sẽ hiện cảnh báo vì đây là CA do người dùng cài."
+
+                textSize = 12f
+                setTextColor(
+                    Color.rgb(
+                        102,
+                        112,
+                        133
+                    )
+                )
+                setPadding(
+                    0,
+                    dp(8),
+                    0,
+                    0
+                )
+            }
+        )
 
         val localNetworkCard = card()
         root.addView(
@@ -742,6 +925,143 @@ class MainActivity : Activity() {
         setContentView(scroll)
         refreshUi()
         refreshRulesUi(force = true)
+    }
+
+    private fun prepareCaExport() {
+        thread(
+            start = true,
+            isDaemon = true,
+            name = "AdShield-CA-create"
+        ) {
+            val result =
+                runCatching {
+                    HttpsCertificateAuthority
+                        .ensureCa(
+                            applicationContext
+                        )
+                }
+
+            runOnUiThread {
+                result.onFailure {
+                    toast(
+                        "Không tạo được CA: " +
+                            (
+                                it.message
+                                    ?: "lỗi không xác định"
+                                )
+                    )
+                    return@runOnUiThread
+                }
+
+                refreshHttpsStatus()
+
+                val intent =
+                    Intent(
+                        Intent.ACTION_CREATE_DOCUMENT
+                    ).apply {
+                        addCategory(
+                            Intent.CATEGORY_OPENABLE
+                        )
+                        type =
+                            "application/x-x509-ca-cert"
+                        putExtra(
+                            Intent.EXTRA_TITLE,
+                            "adshield-ca.crt"
+                        )
+                    }
+
+                @Suppress("DEPRECATION")
+                startActivityForResult(
+                    intent,
+                    CA_EXPORT_REQUEST
+                )
+            }
+        }
+    }
+
+    private fun restartVpnForSettings() {
+        if (!isShieldRunning()) {
+            return
+        }
+
+        val intent =
+            Intent(
+                this,
+                DnsVpnService::class.java
+            ).setAction(
+                DnsVpnService.ACTION_RESTART
+            )
+
+        if (
+            Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.O
+        ) {
+            startForegroundService(
+                intent
+            )
+        } else {
+            startService(
+                intent
+            )
+        }
+    }
+
+    private fun refreshHttpsStatus() {
+        if (!::httpsStatusText.isInitialized) {
+            return
+        }
+
+        val prefs =
+            getSharedPreferences(
+                PREFS,
+                MODE_PRIVATE
+            )
+
+        val caReady =
+            HttpsCertificateAuthority
+                .isReady(this)
+
+        val enabled =
+            prefs.getBoolean(
+                KEY_HTTPS_FILTERING,
+                false
+            )
+
+        val error =
+            prefs.getString(
+                KEY_HTTPS_FILTER_ERROR,
+                null
+            )
+
+        httpsStatusText.text =
+            buildString {
+                append(
+                    if (caReady) {
+                        "CA đã tạo trong vùng riêng của AdShield."
+                    } else {
+                        "CA chưa được tạo."
+                    }
+                )
+
+                append(
+                    if (enabled) {
+                        "\nHTTPS filtering: BẬT"
+                    } else {
+                        "\nHTTPS filtering: TẮT"
+                    }
+                )
+
+                if (
+                    !error.isNullOrBlank()
+                ) {
+                    append(
+                        "\nLỗi: "
+                    )
+                    append(
+                        error
+                    )
+                }
+            }
     }
 
     private fun maybeAutoUpdateFilters() {
@@ -1253,6 +1573,7 @@ class MainActivity : Activity() {
                 }
         }
 
+        refreshHttpsStatus()
         refreshFilterStatus()
         refreshRulesUi()
     }
@@ -1268,6 +1589,7 @@ class MainActivity : Activity() {
     companion object {
         private const val VPN_PERMISSION_REQUEST = 100
         private const val NOTIFICATION_PERMISSION_REQUEST = 200
+        private const val CA_EXPORT_REQUEST = 300
 
         const val PREFS = "adshield_stats"
         const val KEY_RUNNING = "vpn_running"
@@ -1278,6 +1600,11 @@ class MainActivity : Activity() {
             "vpn_start_error"
         const val KEY_VPN_FILTER_LOAD_ERROR =
             "vpn_filter_load_error"
+
+        const val KEY_HTTPS_FILTERING =
+            "https_filtering_enabled"
+        const val KEY_HTTPS_FILTER_ERROR =
+            "https_filter_error"
 
         const val KEY_REDIRECT_PROTECTION =
             "redirect_protection_enabled"
