@@ -73,3 +73,50 @@ AdShield can download and combine a large DNS filtering profile designed for str
 The downloaded lists are cached locally and refreshed after 24 hours when the app is opened. A failed update does not replace the previously working files. Users can always add an allow rule for false positives.
 
 This remains DNS-level filtering. It cannot remove same-origin HTML/CSS ad containers or reliably block JavaScript popups served from the same domain as the website.
+
+
+## HTTPS filtering (v1.0)
+
+AdShield no longer includes an embedded protected WebView/browser.
+
+Optional HTTPS filtering now uses:
+
+- the existing local `VpnService`
+- Android's VPN HTTP proxy hint (`VpnService.Builder.setHttpProxy`) on Android 10+
+- a local proxy bound to `127.0.0.1:8877`
+- a per-install **AdShield Personal CA**
+- on-device TLS certificates generated for requested hosts
+- request host blocking plus HTML cosmetic/script injection for compatible HTTP/1.1 pages
+
+HTTPS filtering is **off by default**.
+
+### CA installation
+
+On Android 11+ an ordinary app cannot silently install a CA certificate. AdShield therefore generates the CA privately, exports only the public `.crt` file through Android's Storage Access Framework, and asks the user to install that certificate manually in Android Settings.
+
+The CA private key is never exported from the app's private data directory.
+
+Typical setup:
+
+1. Open **Lọc HTTPS toàn hệ thống** in AdShield.
+2. Tap **Tạo và xuất chứng chỉ CA (.crt)**.
+3. Save `adshield-ca.crt`.
+4. Open Android Settings and install it under the **CA certificate** installation flow.
+5. Return to AdShield and enable **HTTPS filtering**.
+6. Restart protection if needed.
+
+### Important limitations and safety
+
+- `setHttpProxy` is a proxy recommendation exposed by the VPN network; apps are free to ignore it.
+- Apps that do not trust user-installed CAs, use certificate pinning, use a private network stack, or avoid the system proxy may not be filterable.
+- Banking/payment/security-sensitive apps should normally be placed in **Ứng dụng bỏ qua AdShield**.
+- HTTPS filtering decrypts compatible traffic **locally on the device** so filtering can be applied. AdShield does not send decrypted content to a remote server.
+- HTTP/2, HTTP/3/QUIC, uncommon transfer encodings, and highly customized app network stacks are not fully covered by this first implementation.
+- DNS filtering remains active independently of HTTPS filtering.
+
+## Local-network compatibility (v0.9+)
+
+AdShield can keep TV remotes, Chromecast, printers, and smart-home apps working by:
+
+- forwarding `.local`, `.lan`, `home.arpa`, and related local names to the current Wi-Fi/router DNS when possible
+- allowing selected applications to bypass the VPN completely via `addDisallowedApplication()`
