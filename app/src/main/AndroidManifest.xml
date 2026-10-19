@@ -26,11 +26,6 @@
             android:exported="false" />
 
         <activity
-            android:name=".ProtectedBrowserActivity"
-            android:exported="false"
-            android:process=":protected_browser" />
-
-        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop">
