@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.ProxyInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -20,6 +21,7 @@ import java.io.FileOutputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.Socket
 import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
@@ -31,6 +33,7 @@ class DnsVpnService : VpnService() {
 
     private var tunnel: ParcelFileDescriptor? = null
     private var worker: Thread? = null
+    private var httpsProxy: HttpsProxyServer? = null
 
     @Volatile
     private var localDnsServers: List<InetAddress> =
@@ -133,6 +136,7 @@ class DnsVpnService : VpnService() {
             loadBundledFilters()
 
             captureLocalDnsServers()
+            startHttpsProxyIfEnabled()
 
             val descriptor =
                 establishTunnel()
@@ -213,6 +217,18 @@ class DnsVpnService : VpnService() {
                     }
                 }
             }
+
+        if (
+            Build.VERSION.SDK_INT >= 29 &&
+            httpsProxy != null
+        ) {
+            builder.setHttpProxy(
+                ProxyInfo.buildDirectProxy(
+                    "127.0.0.1",
+                    HttpsProxyServer.PORT
+                )
+            )
+        }
 
         return builder.establish()
     }
@@ -337,6 +353,171 @@ class DnsVpnService : VpnService() {
                     ".localdomain"
                 )
             )
+    }
+
+    private fun startHttpsProxyIfEnabled() {
+        httpsProxy?.stop()
+        httpsProxy = null
+
+        val prefs =
+            getSharedPreferences(
+                MainActivity.PREFS,
+                MODE_PRIVATE
+            )
+
+        val enabled =
+            prefs.getBoolean(
+                MainActivity.KEY_HTTPS_FILTERING,
+                false
+            )
+
+        if (!enabled) {
+            clearHttpsFilterError()
+            return
+        }
+
+        if (Build.VERSION.SDK_INT < 29) {
+            setHttpsFilterError(
+                "HTTPS proxy qua VPN cần Android 10 trở lên."
+            )
+            return
+        }
+
+        if (
+            !HttpsCertificateAuthority
+                .isReady(this)
+        ) {
+            setHttpsFilterError(
+                "Chưa tạo chứng chỉ CA AdShield."
+            )
+            return
+        }
+
+        val proxy =
+            HttpsProxyServer(
+                this,
+                shouldBlockHost = {
+                    host ->
+                    shouldBlockProxyHost(
+                        host
+                    )
+                },
+                protectSocket = {
+                    socket: Socket ->
+                    protect(socket)
+                }
+            )
+
+        if (proxy.start()) {
+            httpsProxy = proxy
+            clearHttpsFilterError()
+        } else {
+            setHttpsFilterError(
+                "Không thể mở local HTTPS proxy tại cổng " +
+                    HttpsProxyServer.PORT
+            )
+        }
+    }
+
+    private fun shouldBlockProxyHost(
+        rawHost: String
+    ): Boolean {
+        val host =
+            DomainRules.normalize(
+                rawHost
+            )
+
+        if (host.isEmpty()) {
+            return false
+        }
+
+        val prefs =
+            getSharedPreferences(
+                MainActivity.PREFS,
+                MODE_PRIVATE
+            )
+
+        val localCompatibility =
+            prefs.getBoolean(
+                MainActivity
+                    .KEY_LOCAL_NETWORK_COMPATIBILITY,
+                true
+            )
+
+        if (
+            localCompatibility &&
+            isLocalDomain(host)
+        ) {
+            return false
+        }
+
+        if (
+            DomainRules.isAllowed(
+                this,
+                host
+            )
+        ) {
+            return false
+        }
+
+        if (
+            DomainRules.isBlocked(
+                this,
+                host
+            )
+        ) {
+            return true
+        }
+
+        if (
+            adBlocklist.isBlocked(
+                host
+            )
+        ) {
+            return true
+        }
+
+        val redirectEnabled =
+            prefs.getBoolean(
+                MainActivity
+                    .KEY_REDIRECT_PROTECTION,
+                true
+            )
+
+        return (
+            redirectEnabled &&
+                popupRedirectBlocklist
+                    .isBlocked(host)
+            )
+    }
+
+    private fun setHttpsFilterError(
+        message: String
+    ) {
+        getSharedPreferences(
+            MainActivity.PREFS,
+            MODE_PRIVATE
+        )
+            .edit()
+            .putString(
+                MainActivity
+                    .KEY_HTTPS_FILTER_ERROR,
+                message
+            )
+            .apply()
+    }
+
+    private fun clearHttpsFilterError() {
+        getSharedPreferences(
+            MainActivity.PREFS,
+            MODE_PRIVATE
+        )
+            .edit()
+            .remove(
+                MainActivity
+                    .KEY_HTTPS_FILTER_ERROR
+            )
+            .apply()
     }
 
     private fun loadBundledFilters() {
@@ -503,6 +684,13 @@ class DnsVpnService : VpnService() {
 
     private fun stopVpn() {
         active.set(false)
+
+        try {
+            httpsProxy?.stop()
+        } catch (_: Throwable) {
+        }
+
+        httpsProxy = null
 
         try {
             tunnel?.close()
@@ -726,6 +914,13 @@ class DnsVpnService : VpnService() {
             .apply()
 
         active.set(false)
+
+        try {
+            httpsProxy?.stop()
+        } catch (_: Throwable) {
+        }
+
+        httpsProxy = null
 
         try {
             tunnel?.close()
@@ -1079,7 +1274,11 @@ class DnsVpnService : VpnService() {
                 "AdShield đang bảo vệ"
             )
             .setContentText(
-                "Đang lọc DNS quảng cáo trên thiết bị"
+                if (httpsProxy != null) {
+                    "Đang lọc DNS + HTTPS trên thiết bị"
+                } else {
+                    "Đang lọc DNS quảng cáo trên thiết bị"
+                }
             )
             .setContentIntent(
                 openApp
