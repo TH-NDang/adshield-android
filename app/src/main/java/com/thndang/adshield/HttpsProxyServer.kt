@@ -313,16 +313,18 @@ class HttpsProxyServer(
             upstreamRaw.soTimeout =
                 UPSTREAM_TIMEOUT_MS
 
-            val upstreamTls =
-                (
+            val defaultSslFactory =
+                SSLSocketFactory
+                    .getDefault() as
                     SSLSocketFactory
-                        .getDefault()
-                        .createSocket(
-                            upstreamRaw,
-                            host,
-                            port,
-                            true
-                        )
+
+            val upstreamTls =
+                defaultSslFactory
+                    .createSocket(
+                        upstreamRaw,
+                        host,
+                        port,
+                        true
                     ) as SSLSocket
 
             upstreamTls.use {
@@ -975,8 +977,8 @@ class HttpsProxyServer(
                     "(root||document).querySelectorAll(" +
                     "'.ads-300,.ads_player,.pc-catfixx,.mobile-catfixx," +
                     ".mobile-catfish-top,.Ads,.Adv,#invideo_wrapper," +
-                    "#_preload-ads-1,[class*=\\\"pause-ad\\"]," +
-                    "[class*=\\\"video-ad\\"]').forEach(hide);" +
+                    "#_preload-ads-1,[class*=\\\"pause-ad\\\"]," +
+                    "[class*=\\\"video-ad\\\"]').forEach(hide);" +
                     "var els=(root||document).querySelectorAll(" +
                     "'button,a,[role=button],div,span');" +
                     "var n=0;for(var i=0;i<els.length&&n<350;i++,n++){" +
